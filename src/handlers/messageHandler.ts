@@ -1,5 +1,5 @@
 import { messagingApi } from '@line/bot-sdk';
-import { runtimeState, KNOWN_ACCOUNTS } from '../config.js';
+import { config, runtimeState, KNOWN_ACCOUNTS } from '../config.js';
 import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
 
@@ -12,14 +12,37 @@ export async function handleTextMessage(
   const trimmed = text.trim();
 
   try {
-    // 指令 0: 查詢自己的 LINE User ID
+    // 指令 0: 查詢自己的 LINE User ID (公開指令，方便獲取 ID)
     if (/^(id|我的id|uid|user\s*id)$/i.test(trimmed)) {
       await lineClient.replyMessage({
         replyToken,
         messages: [
           {
             type: 'text',
-            text: `👤 您的 LINE User ID 為：\n${userId || '未能取得'}\n\n可將此 ID 填入 .env 的 ADMIN_LINE_USER_ID，即可接收每日 09:00 晨報與警報！`,
+            text: `👤 您的 LINE User ID 為：\n${userId || '未能取得'}\n\n可將此 ID 提供給管理員加入白名單，即可調閱廣告數據與接收每日晨報！`,
+          },
+        ],
+      });
+      return;
+    }
+
+    // 🔒 管理員白名單安全防護 (Admin Whitelist Guard)
+    // 支援單一 ID 或以逗號分隔的多個授權 ID
+    const allowedAdmins = (config.adminUserId || '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+
+    const isAuthorized = allowedAdmins.length === 0 || (userId && allowedAdmins.includes(userId));
+
+    if (!isAuthorized) {
+      console.warn(`🚨 [資安攔截] 阻擋來自未授權用戶 [${userId || '未知'}] 的成效查詢: "${trimmed}"`);
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: 'text',
+            text: `🔒 存取受限 (私密模式)\n\n本系統目前處於「個人專屬私密模式」，僅限授權管理員調閱廣告成效數據。\n\n您的專屬 ID：\n${userId || '未能識別'}\n\n若您是專案成員，請將此 ID 提供給管理者加入白名單。`,
           },
         ],
       });
