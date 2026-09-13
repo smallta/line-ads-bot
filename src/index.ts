@@ -27,6 +27,25 @@ app.get('/', (req, res) => {
   });
 });
 
+// 外部排程觸發端點 (用於 GitHub Actions 或定時服務喚醒並推播晨報)
+app.get('/cron/push-brief', async (req, res) => {
+  console.log('⏰ [External Trigger] 收到排程觸發請求，開始執行晨報推播...');
+  try {
+    await pushMorningBrief();
+    res.json({
+      status: 'success',
+      message: '每日廣告成效晨報已成功推送！',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('❌ [External Trigger] 晨報推送失敗:', err);
+    res.status(500).json({
+      status: 'error',
+      message: err.message,
+    });
+  }
+});
+
 // LINE Webhook 端點 (需經過 LINE 簽章驗證中介軟體)
 app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
   const events: WebhookEvent[] = req.body.events;

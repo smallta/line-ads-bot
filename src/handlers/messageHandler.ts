@@ -2,6 +2,7 @@ import { messagingApi } from '@line/bot-sdk';
 import { config, runtimeState, KNOWN_ACCOUNTS } from '../config.js';
 import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
+import { pushMorningBrief } from '../cron/pushMorningBrief.js';
 
 export async function handleTextMessage(
   text: string,
@@ -57,6 +58,16 @@ export async function handleTextMessage(
         replyToken,
         messages: [flex],
       });
+      return;
+    }
+
+    // 指令 1.5: 手動測試或即時推播晨報
+    if (/^(晨報|推播晨報|發送晨報|morning\s*brief)$/i.test(trimmed)) {
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [{ type: 'text', text: '🚀 正在為您即時生成並推播最新廣告晨報戰情卡片...' }],
+      });
+      await pushMorningBrief();
       return;
     }
 
