@@ -27,22 +27,15 @@ app.get('/', (req, res) => {
   });
 });
 
-// 外部排程觸發端點 (用於 GitHub Actions 或定時服務喚醒並推播晨報)
-app.get('/cron/push-brief', async (req, res) => {
+// 外部排程觸發端點 (用於定時喚醒與觸發晨報，極簡回傳 2 字元 OK 避免超出 cron 服務大小限制)
+app.all('/cron/push-brief', async (req, res) => {
   console.log('⏰ [External Trigger] 收到排程觸發請求，開始執行晨報推播...');
   try {
     await pushMorningBrief();
-    res.json({
-      status: 'success',
-      message: '每日廣告成效晨報已成功推送！',
-      timestamp: new Date().toISOString(),
-    });
+    res.status(200).send('OK');
   } catch (err: any) {
     console.error('❌ [External Trigger] 晨報推送失敗:', err);
-    res.status(500).json({
-      status: 'error',
-      message: err.message,
-    });
+    res.status(500).send('ERR');
   }
 });
 
