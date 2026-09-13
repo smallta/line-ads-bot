@@ -16,15 +16,9 @@ const lineClient = new messagingApi.MessagingApiClient({
   channelAccessToken: config.line.channelAccessToken,
 });
 
-// 健康檢查首頁
-app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    service: 'LINE OA Meta Ads Diagnostic Bot',
-    currentAdAccount: runtimeState.currentAccountName,
-    currentAdAccountId: runtimeState.currentAdAccountId,
-    timestamp: new Date().toISOString(),
-  });
+// 健康檢查首頁 (極簡回傳 2 字元 OK，供保活排程 ping 使用)
+app.all(['/', '/healthz', '/ping'], (req, res) => {
+  res.status(200).send('OK');
 });
 
 // 外部排程觸發端點 (用於定時喚醒與觸發晨報，極簡回傳 2 字元 OK 避免超出 cron 服務大小限制)
