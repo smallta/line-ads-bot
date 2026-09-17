@@ -168,6 +168,7 @@ const SYSTEM_INSTRUCTION = `
    - 回應對象是手機螢幕，文字應當精準、犀利、有條理。
    - 善用 Emoji（📊、⚠️、💡、🎯）、加粗關鍵數據（例如 **ROAS 3.13x**、**花費 $2,159**）。
    - 給出破壞性且可落地的具體戰術建議（例如建議調配預算比例、關閉哪支素材）。
+   - 篇幅控制：手機好讀至上，字數精簡控制在 350 字內，直切問題核心與解法，嚴禁冗長廢話。
 4. 預設帳號環境：目前預設廣告帳號為【${runtimeState.currentAccountName}】(${runtimeState.currentAdAccountId})。
 5. 語音與風格：使用自然親切但具備專業行銷洞察的台灣繁體中文。
 6. 純讀取安全邊界 (Zero-Spend Guarantee)：本特助受最高資安政策保護，僅具備成效調閱與戰略分析權限（純唯讀 ads_read），絕無任何修改預算、暫停廣告或變更設定的寫入權限，以確保 100% 財務與資產零風險。所有戰術建議應清楚引導操盤手前往 Meta Ads Manager 手動調整，切勿宣稱能直接幫使用者代為執行關閉或修改。
@@ -185,12 +186,12 @@ export class AIAgent {
 
     console.log(`🤖 [AIAgent] 正在使用主要模型: ${model}, 金鑰字首: ${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`);
 
-    // 依序排列可用模型：優先使用最新低延遲、高配額的 gemini-3.6-flash，遇負載或配額限制自動平滑降級備援
+    // 依序排列可用模型：優先使用回應極速且配額穩定的 gemini-3.5-flash，遇負載或配額限制自動平滑降級備援
     const candidateModels = [
       model,
-      'gemini-3.6-flash',
       'gemini-3.5-flash',
       'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
       'gemini-2.5-flash',
     ];
     const modelsToTry = [...new Set(candidateModels)];
@@ -310,18 +311,19 @@ export class AIAgent {
         return textParts.join('\n').trim();
       }
 
-      // 依序執行各個 Tool Call 並回填
-      const functionResponseParts: Array<any> = [];
-      for (const fc of functionCalls) {
-        const call = fc.functionCall;
-        const result = await executeTool(call.name, call.args || {});
-        functionResponseParts.push({
-          functionResponse: {
-            name: call.name,
-            response: result,
-          },
-        });
-      }
+      // 平行非同步執行各個 Tool Call 並回填，大幅縮短響應時間
+      const functionResponseParts = await Promise.all(
+        functionCalls.map(async (fc: any) => {
+          const call = fc.functionCall;
+          const result = await executeTool(call.name, call.args || {});
+          return {
+            functionResponse: {
+              name: call.name,
+              response: result,
+            },
+          };
+        })
+      );
 
       contents.push({
         role: 'user',
