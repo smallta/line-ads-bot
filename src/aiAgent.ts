@@ -174,12 +174,15 @@ const SYSTEM_INSTRUCTION = `
 
 export class AIAgent {
   public static async handleUserMessage(userText: string): Promise<string> {
-    const apiKey = config.gemini.apiKey;
-    const model = config.gemini.model || 'gemini-2.5-flash';
+    const rawKey = config.gemini.apiKey || '';
+    const apiKey = rawKey.replace(/^["']|["']$/g, '').trim();
+    const model = (config.gemini.model || 'gemini-2.5-flash').trim();
 
-    if (!apiKey) {
-      throw new Error('未設定 GEMINI_API_KEY');
+    if (!apiKey || apiKey.includes('your_gemini')) {
+      throw new Error('未在 Render 環境變數設定正確的 GEMINI_API_KEY（請填入 AQ.Ab8... 完整金鑰）');
     }
+
+    console.log(`🤖 [AIAgent] 正在使用 Gemini 模型: ${model}, 金鑰字首: ${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`);
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
