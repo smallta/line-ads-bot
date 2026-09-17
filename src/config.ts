@@ -13,6 +13,10 @@ export interface BotConfig {
     defaultAdAccountId: string;
     apiVersion: string;
   };
+  gemini: {
+    apiKey: string;
+    model: string;
+  };
 }
 
 export const KNOWN_ACCOUNTS: Record<string, { id: string; name: string; currency: string }> = {
@@ -41,5 +45,9 @@ export const config: BotConfig = {
     accessToken: process.env.META_ACCESS_TOKEN || '',
     defaultAdAccountId: process.env.META_AD_ACCOUNT_ID || 'act_4000297516716904',
     apiVersion: process.env.META_API_VERSION || 'v20.0',
+  },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   },
 };

@@ -288,4 +288,17 @@ export class MetaService {
 
     return fatigued;
   }
+
+  public static async listAccessibleAccounts(): Promise<Array<{ id: string; name: string; currency: string; statusLabel: string }>> {
+    const res = await this.request<{
+      data: Array<{ id: string; name: string; currency: string; account_status: number }>;
+    }>('/me/adaccounts?fields=id,name,currency,account_status&limit=50');
+
+    return (res.data || []).map((acc) => ({
+      id: acc.id,
+      name: acc.name,
+      currency: acc.currency,
+      statusLabel: acc.account_status === 1 ? 'ACTIVE' : `STATUS_${acc.account_status}`,
+    }));
+  }
 }

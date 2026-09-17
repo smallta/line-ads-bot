@@ -3,6 +3,7 @@ import { config, runtimeState, KNOWN_ACCOUNTS } from '../config.js';
 import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
 import { pushMorningBrief } from '../cron/pushMorningBrief.js';
+import { AIAgent } from '../aiAgent.js';
 
 export async function handleTextMessage(
   text: string,
@@ -160,11 +161,36 @@ export async function handleTextMessage(
       }
     }
 
-    // 預設指令: 說明手冊
-    const helpFlex = FlexBuilder.buildHelpFlex(runtimeState.currentAccountName);
+    // 指令 5: 說明手冊
+    if (/^(說明|help|\?|？|指令)$/i.test(trimmed)) {
+      const helpFlex = FlexBuilder.buildHelpFlex(runtimeState.currentAccountName);
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [helpFlex],
+      });
+      return;
+    }
+
+    // 🤖 AI 顧問特助大腦：處理所有自由對話與自然語言查詢
+    if (config.gemini.apiKey) {
+      const aiReply = await AIAgent.handleUserMessage(trimmed);
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: 'text',
+            text: aiReply,
+          },
+        ],
+      });
+      return;
+    }
+
+    // 若未設定 GEMINI_API_KEY，回傳預設說明卡片
+    const fallbackHelp = FlexBuilder.buildHelpFlex(runtimeState.currentAccountName);
     await lineClient.replyMessage({
       replyToken,
-      messages: [helpFlex],
+      messages: [fallbackHelp],
     });
   } catch (err: any) {
     console.error('處理 LINE 訊息失敗:', err);
