@@ -194,12 +194,22 @@ export async function handleTextMessage(
     });
   } catch (err: any) {
     console.error('處理 LINE 訊息失敗:', err);
+    const rawMsg = err.message || '';
+    const rawLower = rawMsg.toLowerCase();
+    let replyText = `⚠️ 處理訊息時發生錯誤：${rawMsg}`;
+
+    if (rawLower.includes('quota') || rawLower.includes('resource_exhausted') || rawLower.includes('429')) {
+      replyText = `⏳ AI 模型目前連線頻率較高，算力配額暫時冷卻中（約需 5~10 秒）。\n\n請稍候片刻再輸入問題，或直接輸入「看成效」、「查活動」以極速專線卡片調閱數據！`;
+    } else if (rawLower.includes('high demand') || rawLower.includes('503')) {
+      replyText = `⏳ 目前 Google AI 伺服器尖峰負載中，請等待數秒後再次發問即可！`;
+    }
+
     await lineClient.replyMessage({
       replyToken,
       messages: [
         {
           type: 'text',
-          text: `⚠️ 調閱 Meta 數據時發生錯誤：${err.message || '未知錯誤，請稍後再試'}`,
+          text: replyText,
         },
       ],
     });

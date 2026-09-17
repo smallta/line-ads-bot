@@ -170,6 +170,7 @@ const SYSTEM_INSTRUCTION = `
    - 給出破壞性且可落地的具體戰術建議（例如建議調配預算比例、關閉哪支素材）。
 4. 預設帳號環境：目前預設廣告帳號為【${runtimeState.currentAccountName}】(${runtimeState.currentAdAccountId})。
 5. 語音與風格：使用自然親切但具備專業行銷洞察的台灣繁體中文。
+6. 純讀取安全邊界 (Zero-Spend Guarantee)：本特助受最高資安政策保護，僅具備成效調閱與戰略分析權限（純唯讀 ads_read），絕無任何修改預算、暫停廣告或變更設定的寫入權限，以確保 100% 財務與資產零風險。所有戰術建議應清楚引導操盤手前往 Meta Ads Manager 手動調整，切勿宣稱能直接幫使用者代為執行關閉或修改。
 `.trim();
 
 export class AIAgent {
@@ -184,15 +185,15 @@ export class AIAgent {
 
     console.log(`🤖 [AIAgent] 正在使用主要模型: ${model}, 金鑰字首: ${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`);
 
-    // 優先使用新一代低延遲、充足算力的 gemini-3.5-flash 與 gemini-3.5-flash-lite，遇負載尖峰自動降級備援
-    const modelsToTry = [
-      ...new Set([
-        'gemini-3.5-flash',
-        'gemini-3.5-flash-lite',
-        model,
-        'gemini-flash-latest',
-      ]),
+    // 依序排列可用模型：優先使用最新低延遲、高配額的 gemini-3.6-flash，遇負載或配額限制自動平滑降級備援
+    const candidateModels = [
+      model,
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-2.5-flash',
     ];
+    const modelsToTry = [...new Set(candidateModels)];
 
     async function callGeminiWithFallback(requestBody: any): Promise<any> {
       let lastError: Error | null = null;
@@ -209,26 +210,68 @@ export class AIAgent {
             return data;
           }
           const errMsg = data.error?.message || `HTTP ${res.status}`;
-          console.warn(`⚠️ 模型 [${m}] 暫時無法回應 (${errMsg})，立即切換備援模型...`);
+          const errStatus = data.error?.status || '';
+          const errLower = errMsg.toLowerCase();
+          console.warn(`⚠️ 模型 [${m}] 暫時無法回應 (${errMsg})，立即嘗試切換備援模型...`);
           lastError = new Error(errMsg);
-          if (
-            errMsg.includes('high demand') ||
-            errMsg.includes('ResourceExhausted') ||
-            errMsg.includes('quota') ||
+
+          const isQuotaOrLoadIssue =
+            res.status === 429 ||
             res.status === 503 ||
-            res.status === 429
-          ) {
+            res.status === 404 ||
+            errStatus === 'RESOURCE_EXHAUSTED' ||
+            errLower.includes('quota') ||
+            errLower.includes('rate') ||
+            errLower.includes('high demand') ||
+            errLower.includes('resource_exhausted') ||
+            errLower.includes('overloaded') ||
+            errLower.includes('not found') ||
+            errLower.includes('no longer available');
+
+          if (isQuotaOrLoadIssue) {
             continue;
           }
-          // 若為非負載錯誤 (例如參數格式錯誤)，直接拋出
+          // 若為非負載錯誤 (例如 API key 錯誤)，直接拋出
           throw lastError;
         } catch (e: any) {
           lastError = e;
-          if (e.message?.includes('high demand') || e.message?.includes('503')) {
+          const eMsg = (e.message || '').toLowerCase();
+          if (
+            eMsg.includes('high demand') ||
+            eMsg.includes('503') ||
+            eMsg.includes('429') ||
+            eMsg.includes('quota') ||
+            eMsg.includes('resource_exhausted') ||
+            eMsg.includes('fetch failed')
+          ) {
             continue;
           }
+          throw lastError;
         }
       }
+
+      // 若所有模型皆因短暫配額限制（例如 RPM 尖峰冷卻 3~5 秒），自動延遲等待後重試主力模型
+      if (
+        lastError &&
+        (lastError.message.toLowerCase().includes('quota') ||
+          lastError.message.toLowerCase().includes('resource_exhausted'))
+      ) {
+        console.warn('⏳ 偵測到模型配額暫時冷卻中，自動等待 3.5 秒後為用戶重試主力模型...');
+        await new Promise((resolve) => setTimeout(resolve, 3500));
+        const retryModel = 'gemini-3.6-flash';
+        const retryUrl = `https://generativelanguage.googleapis.com/v1beta/models/${retryModel}:generateContent?key=${apiKey}`;
+        const retryRes = await fetch(retryUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        });
+        const retryData = await retryRes.json();
+        if (retryRes.ok && !retryData.error) {
+          console.log(`✅ [AIAgent] 自動冷卻重試成功！使用模型: ${retryModel}`);
+          return retryData;
+        }
+      }
+
       throw lastError || new Error('所有 Gemini 備援模型皆忙碌中，請稍候重試');
     }
 
