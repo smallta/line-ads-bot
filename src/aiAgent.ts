@@ -182,9 +182,55 @@ export class AIAgent {
       throw new Error('未在 Render 環境變數設定正確的 GEMINI_API_KEY（請填入 AQ.Ab8... 完整金鑰）');
     }
 
-    console.log(`🤖 [AIAgent] 正在使用 Gemini 模型: ${model}, 金鑰字首: ${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`);
+    console.log(`🤖 [AIAgent] 正在使用主要模型: ${model}, 金鑰字首: ${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`);
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    // 優先使用新一代低延遲、充足算力的 gemini-3.5-flash 與 gemini-3.5-flash-lite，遇負載尖峰自動降級備援
+    const modelsToTry = [
+      ...new Set([
+        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        model,
+        'gemini-flash-latest',
+      ]),
+    ];
+
+    async function callGeminiWithFallback(requestBody: any): Promise<any> {
+      let lastError: Error | null = null;
+      for (const m of modelsToTry) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          });
+          const data = await res.json();
+          if (res.ok && !data.error) {
+            return data;
+          }
+          const errMsg = data.error?.message || `HTTP ${res.status}`;
+          console.warn(`⚠️ 模型 [${m}] 暫時無法回應 (${errMsg})，立即切換備援模型...`);
+          lastError = new Error(errMsg);
+          if (
+            errMsg.includes('high demand') ||
+            errMsg.includes('ResourceExhausted') ||
+            errMsg.includes('quota') ||
+            res.status === 503 ||
+            res.status === 429
+          ) {
+            continue;
+          }
+          // 若為非負載錯誤 (例如參數格式錯誤)，直接拋出
+          throw lastError;
+        } catch (e: any) {
+          lastError = e;
+          if (e.message?.includes('high demand') || e.message?.includes('503')) {
+            continue;
+          }
+        }
+      }
+      throw lastError || new Error('所有 Gemini 備援模型皆忙碌中，請稍候重試');
+    }
 
     const contents: Array<{ role: string; parts: Array<any> }> = [
       { role: 'user', parts: [{ text: userText }] },
@@ -202,17 +248,7 @@ export class AIAgent {
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
       };
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error?.message || `Gemini API 錯誤 (${response.status})`);
-      }
+      const data = await callGeminiWithFallback(requestBody);
 
       const candidate = data.candidates?.[0];
       if (!candidate || !candidate.content) {
