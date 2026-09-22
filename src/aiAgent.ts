@@ -281,7 +281,7 @@ export class AIAgent {
     ];
 
     let turns = 0;
-    const maxTurns = 4;
+    const maxTurns = 6;
 
     while (turns < maxTurns) {
       turns++;
