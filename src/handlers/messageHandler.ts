@@ -21,9 +21,19 @@ async function safeSendMessages(
     console.warn(`⚠️ [LINE Reply Failed] replyMessage 失敗 (${replyErr.message})，立即啟動 pushMessage 備援直達...`);
     if (userId) {
       try {
+        const fallbackMessages = messages.map((m) => {
+          if (m.type === 'text' && typeof m.text === 'string') {
+            return {
+              ...m,
+              text: m.text + '\n\n💡 (⚡ 跨維度分析耗時較長，特助已透過專屬備援通道為您直送手機)',
+            };
+          }
+          return m;
+        });
+
         await lineClient.pushMessage({
           to: userId,
-          messages,
+          messages: fallbackMessages,
         });
         console.log(`✅ [LINE Push Fallback] 成功透過 pushMessage 送達用戶 [${userId}]！`);
         return;
