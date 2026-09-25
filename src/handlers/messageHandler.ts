@@ -4,6 +4,7 @@ import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
 import { pushMorningBrief } from '../cron/pushMorningBrief.js';
 import { AIAgent } from '../aiAgent.js';
+import { AccountManager } from '../accountManager.js';
 
 // 安全發送訊息器：優先使用免費 replyMessage，若遇逾時或 replyToken 失效則自動無縫改用 pushMessage 直達用戶
 async function safeSendMessages(
@@ -123,59 +124,57 @@ export async function handleTextMessage(
       return;
     }
 
-    // 指令 4: 切換帳號
-    if (/^切換|^換帳號/i.test(trimmed)) {
-      const target = trimmed.replace(/^切換|^換帳號/i, '').trim();
+    // 指令 4: 切換帳號 / 換帳號（全面升級：動態讀取全帳號庫 + 智慧模糊比對 + 一鍵 Quick Reply）
+    if (/^(切換|換帳號|換到|換成|切換帳號|帳號切換|切換到|切換成)/i.test(trimmed)) {
+      // 檢查是否包含特定帳號關鍵字
+      const matchResult = await AccountManager.matchAndSwitchAccount(trimmed);
 
-      if (!target) {
-        // 列出已知帳號讓使用者選擇
-        const accountList = Object.keys(KNOWN_ACCOUNTS)
-          .map((k) => `👉 「切換 ${k}」`)
-          .join('\n');
+      if (matchResult.success && matchResult.account) {
+        const acc = matchResult.account;
         await safeSendMessages(lineClient, replyToken, userId, [
           {
             type: 'text',
-            text: `目前監控帳號：【${runtimeState.currentAccountName}】\n\n可直接回覆以下指令切換目標：\n${accountList}`,
+            text: `✅ 已成功切換目標帳號為：【${acc.shortName}】(\`${acc.id}\`)\n\n📌 完整名稱：${acc.name}\n💰 結算幣別：${acc.currency}\n\n👉 請輸入「看成效」立即調閱該帳號數據！`,
+            quickReply: {
+              items: [
+                { type: 'action', action: { type: 'message', label: '📊 看成效', text: '看成效' } },
+                { type: 'action', action: { type: 'message', label: '🎯 查活動', text: '查活動' } },
+                { type: 'action', action: { type: 'message', label: '⚡ 查疲勞', text: '查疲勞' } },
+                { type: 'action', action: { type: 'message', label: '🏢 換其他帳號', text: '換帳號' } },
+              ],
+            },
           },
         ]);
         return;
       }
 
-      // 比對帳號名稱或 ID
-      const matchedKey = Object.keys(KNOWN_ACCOUNTS).find(
-        (k) => k.toLowerCase() === target.toLowerCase()
-      );
+      // 未指定目標帳號或輸入無法識別時，動態調閱目前 Token 名下所有廣告帳號並輸出 Flex 卡片 + 快捷按鈕
+      const accounts = await AccountManager.getAccessibleAccounts();
+      const accountFlex = FlexBuilder.buildAccountListFlex(accounts, runtimeState.currentAdAccountId);
 
-      if (matchedKey) {
-        runtimeState.currentAdAccountId = KNOWN_ACCOUNTS[matchedKey].id;
-        runtimeState.currentAccountName = KNOWN_ACCOUNTS[matchedKey].name;
-        await safeSendMessages(lineClient, replyToken, userId, [
-          {
-            type: 'text',
-            text: `✅ 已成功切換目標帳號為：【${runtimeState.currentAccountName}】(\`${runtimeState.currentAdAccountId}\`)\n\n請輸入「看成效」立即調閱數據！`,
-          },
-        ]);
-        return;
-      } else if (target.startsWith('act_') || /^\d+$/.test(target)) {
-        const id = target.startsWith('act_') ? target : `act_${target}`;
-        runtimeState.currentAdAccountId = id;
-        runtimeState.currentAccountName = id;
-        await safeSendMessages(lineClient, replyToken, userId, [
-          {
-            type: 'text',
-            text: `✅ 已切換至自訂帳號 ID：\`${id}\`\n\n請輸入「看成效」立即調閱數據！`,
-          },
-        ]);
-        return;
-      } else {
-        await safeSendMessages(lineClient, replyToken, userId, [
-          {
-            type: 'text',
-            text: `❌ 找不到名為「${target}」的帳號。\n請輸入「切換」查看可用清單，或直接輸入帳號 ID（如 act_123456）。`,
-          },
-        ]);
-        return;
+      const quickReplyItems = accounts.slice(0, 13).map((a) => ({
+        type: 'action' as const,
+        action: {
+          type: 'message' as const,
+          label: a.shortName.length > 20 ? a.shortName.slice(0, 19) + '…' : a.shortName,
+          text: `切換 ${a.shortName}`,
+        },
+      }));
+
+      const replyMessages: any[] = [accountFlex];
+      if (matchResult.error) {
+        replyMessages.unshift({
+          type: 'text',
+          text: `⚠️ ${matchResult.error}。\n請參考下方已授權的帳號清單直接點選切換：`,
+        });
       }
+
+      // 附加快捷點擊選單
+      const lastMsg = replyMessages[replyMessages.length - 1];
+      lastMsg.quickReply = { items: quickReplyItems };
+
+      await safeSendMessages(lineClient, replyToken, userId, replyMessages);
+      return;
     }
 
     // 指令 5: 說明手冊

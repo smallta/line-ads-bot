@@ -1,5 +1,6 @@
 import { config, runtimeState, KNOWN_ACCOUNTS } from './config.js';
 import { MetaService } from './metaService.js';
+import { AccountManager } from './accountManager.js';
 
 // Gemini 函數調用 (Function Calling) 宣告
 const TOOL_DECLARATIONS = [
@@ -78,17 +79,16 @@ const TOOL_DECLARATIONS = [
   },
 ];
 
-// 解析帳號名稱或 ID
-function resolveAccountId(input?: string): { id: string; name: string } {
+// 解析帳號名稱或 ID（動態查詢全帳號庫與模糊比對）
+async function resolveAccountId(input?: string): Promise<{ id: string; name: string }> {
   if (!input) {
     return { id: runtimeState.currentAdAccountId, name: runtimeState.currentAccountName };
   }
-  const clean = input.trim();
-  for (const [name, info] of Object.entries(KNOWN_ACCOUNTS)) {
-    if (clean.toLowerCase() === name.toLowerCase() || clean.includes(name)) {
-      return { id: info.id, name: info.name };
-    }
+  const result = await AccountManager.matchAndSwitchAccount(input);
+  if (result.success && result.account) {
+    return { id: result.account.id, name: result.account.shortName || result.account.name };
   }
+  const clean = input.trim();
   if (clean.startsWith('act_') || /^\d+$/.test(clean)) {
     const id = clean.startsWith('act_') ? clean : `act_${clean}`;
     return { id, name: id };
@@ -102,14 +102,14 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
   try {
     switch (name) {
       case 'get_account_overview': {
-        const { id, name: accName } = resolveAccountId(args.accountNameOrId);
+        const { id, name: accName } = await resolveAccountId(args.accountNameOrId);
         const preset = args.datePreset || 'last_7d';
         const data = await MetaService.getAccountOverview(id, preset);
         return { targetAccount: accName, accountId: id, metrics: data };
       }
 
       case 'list_campaigns': {
-        const { id, name: accName } = resolveAccountId(args.accountNameOrId);
+        const { id, name: accName } = await resolveAccountId(args.accountNameOrId);
         const preset = args.datePreset || 'last_7d';
         const limit = args.limit || 6;
         const campaigns = await MetaService.listCampaigns(id, preset, limit);
@@ -117,32 +117,32 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
       }
 
       case 'detect_fatigue_ads': {
-        const { id, name: accName } = resolveAccountId(args.accountNameOrId);
+        const { id, name: accName } = await resolveAccountId(args.accountNameOrId);
         const fatigued = await MetaService.detectFatigue(id);
         return { targetAccount: accName, accountId: id, fatiguedAds: fatigued, totalFatigued: fatigued.length };
       }
 
       case 'list_accessible_ad_accounts': {
-        const accounts = await MetaService.listAccessibleAccounts();
+        const accounts = await AccountManager.getAccessibleAccounts();
         return { accessibleAccounts: accounts };
       }
 
       case 'switch_ad_account': {
         const target = args.targetAccount;
-        const matchedKey = Object.keys(KNOWN_ACCOUNTS).find(
-          (k) => k.toLowerCase() === target.toLowerCase() || target.includes(k)
-        );
-        if (matchedKey) {
-          runtimeState.currentAdAccountId = KNOWN_ACCOUNTS[matchedKey].id;
-          runtimeState.currentAccountName = KNOWN_ACCOUNTS[matchedKey].name;
-          return { success: true, currentAccountName: runtimeState.currentAccountName, currentAdAccountId: runtimeState.currentAdAccountId };
-        } else if (target.startsWith('act_') || /^\d+$/.test(target)) {
-          const id = target.startsWith('act_') ? target : `act_${target}`;
-          runtimeState.currentAdAccountId = id;
-          runtimeState.currentAccountName = id;
-          return { success: true, currentAccountName: id, currentAdAccountId: id };
+        const result = await AccountManager.matchAndSwitchAccount(target);
+        if (result.success && result.account) {
+          return {
+            success: true,
+            currentAccountName: runtimeState.currentAccountName,
+            currentAdAccountId: runtimeState.currentAdAccountId,
+          };
         }
-        return { success: false, error: `找不到帳號「${target}」，可用帳號包含：${Object.keys(KNOWN_ACCOUNTS).join('、')}` };
+        const accounts = await AccountManager.getAccessibleAccounts();
+        const names = accounts.map((a) => a.shortName).join('、');
+        return {
+          success: false,
+          error: `找不到帳號「${target}」，目前可存取的廣告帳號包含：${names}`,
+        };
       }
 
       default:

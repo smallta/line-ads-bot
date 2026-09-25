@@ -483,4 +483,114 @@ export class FlexBuilder {
       contents: bubble as any,
     } as any as messagingApi.FlexMessage;
   }
+
+  /**
+   * 5. 建立可切換廣告帳號清單 Flex Message（點擊按鈕一鍵切換）
+   */
+  public static buildAccountListFlex(
+    accounts: Array<{ id: string; name: string; currency: string; shortName: string }>,
+    currentAccountId: string
+  ): messagingApi.FlexMessage {
+    const rows = accounts.slice(0, 10).map((acc) => {
+      const isCurrent = acc.id === currentAccountId;
+      return {
+        type: 'box',
+        layout: 'horizontal',
+        alignItems: 'center',
+        paddingAll: '8px',
+        backgroundColor: isCurrent ? '#EFF6FF' : '#FFFFFF',
+        cornerRadius: 'md',
+        margin: 'xs',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            flex: 4,
+            contents: [
+              {
+                type: 'text',
+                text: `${isCurrent ? '📌 ' : ''}${acc.shortName}`,
+                weight: isCurrent ? 'bold' : 'regular',
+                size: 'sm',
+                color: isCurrent ? '#2563EB' : '#0F172A',
+              },
+              {
+                type: 'text',
+                text: `${acc.name} (${acc.currency})`,
+                size: 'xxs',
+                color: '#94A3B8',
+                wrap: false,
+              },
+            ],
+          },
+          {
+            type: 'button',
+            style: isCurrent ? 'secondary' : 'primary',
+            color: isCurrent ? '#E2E8F0' : '#2563EB',
+            height: 'sm',
+            flex: 2,
+            action: {
+              type: 'message',
+              label: isCurrent ? '當前' : '切換',
+              text: `切換 ${acc.shortName}`,
+            },
+          },
+        ],
+      };
+    });
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#0F172A',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'text',
+            text: '🏢 可切換的 Meta 廣告帳號',
+            weight: 'bold',
+            size: 'md',
+            color: '#38BDF8',
+          },
+          {
+            type: 'text',
+            text: `共找到 ${accounts.length} 個已授權帳號，點擊按鈕直接切換：`,
+            size: 'xs',
+            color: '#94A3B8',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'none',
+        paddingAll: '8px',
+        contents: rows,
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        paddingAll: '10px',
+        contents: [
+          {
+            type: 'text',
+            text: '💡 亦可直接輸入「切換 帳號名稱」或帳號 ID 進行切換',
+            size: 'xxs',
+            color: '#94A3B8',
+            align: 'center',
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: '可切換的 Meta 廣告帳號清單',
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
 }
