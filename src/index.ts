@@ -16,9 +16,29 @@ const lineClient = new messagingApi.MessagingApiClient({
   channelAccessToken: config.line.channelAccessToken,
 });
 
+// 即時日誌記憶體緩衝區（保留最新 200 行，便於遠端診斷與即時排除問題）
+const runtimeLogs: string[] = [];
+function recordLog(level: string, ...args: any[]) {
+  const time = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+  const str = args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+  runtimeLogs.push(`[${time}] [${level}] ${str}`);
+  if (runtimeLogs.length > 200) runtimeLogs.shift();
+}
+const _origLog = console.log;
+const _origErr = console.error;
+const _origWarn = console.warn;
+console.log = (...args: any[]) => { recordLog('INFO', ...args); _origLog(...args); };
+console.error = (...args: any[]) => { recordLog('ERROR', ...args); _origErr(...args); };
+console.warn = (...args: any[]) => { recordLog('WARN', ...args); _origWarn(...args); };
+
 // 健康檢查首頁 (極簡回傳 2 字元 OK，供保活排程 ping 使用)
 app.all(['/', '/healthz', '/ping'], (req, res) => {
   res.status(200).send('OK');
+});
+
+// 查看即時伺服器日誌端點（供遠端診斷異常）
+app.get('/logs', (req, res) => {
+  res.type('text/plain; charset=utf-8').send(runtimeLogs.join('\n') || '尚無日誌記錄');
 });
 
 // 外部排程觸發端點 (用於定時喚醒與觸發晨報，極簡回傳 2 字元 OK 避免超出 cron 服務大小限制)
@@ -48,8 +68,9 @@ app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
 
       // 1. 處理文字訊息事件
       if (event.type === 'message' && event.message.type === 'text') {
-        console.log(`💬 訊息內容: "${event.message.text}"`);
+        console.log(`💬 訊息內容: "${event.message.text}" (replyToken: ${event.replyToken})`);
         await handleTextMessage(event.message.text, event.replyToken, lineClient, senderId);
+        console.log(`✅ 訊息 "${event.message.text}" 處理完成！`);
       }
       // 2. 處理加入好友 / 解除封鎖事件 (Follow)
       else if (event.type === 'follow') {
@@ -60,7 +81,7 @@ app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
         });
       }
     } catch (err: any) {
-      console.error('處理 Webhook 事件失敗:', err);
+      console.error('❌ 處理 Webhook 事件失敗:', err.message, err.stack);
     }
   }
 });
