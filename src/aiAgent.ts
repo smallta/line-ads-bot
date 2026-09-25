@@ -65,13 +65,13 @@ const TOOL_DECLARATIONS = [
   },
   {
     name: 'switch_ad_account',
-    description: '切換當前對話預設監控的廣告帳號。',
+    description: '切換當前對話預設監控的廣告帳號。你完全具備此權限！當使用者要求換帳號、切換帳號或想查看其他品牌/專案時，必須調用此工具。',
     parameters: {
       type: 'OBJECT',
       properties: {
         targetAccount: {
           type: 'STRING',
-          description: '目標帳號名稱（如 DR.WU、一起夢想、科懋）或 ID（如 act_6666271896827259）。',
+          description: '目標帳號名稱（如 DR.WU、微型社福、蔚然頌缽、生活用品、科懋）或 ID（如 act_6666271896827259）。',
         },
       },
       required: ['targetAccount'],
@@ -171,7 +171,9 @@ const SYSTEM_INSTRUCTION = `
    - 篇幅控制：手機好讀至上，字數精簡控制在 350 字內，直切問題核心與解法，嚴禁冗長廢話。
 4. 預設帳號環境：目前預設廣告帳號為【${runtimeState.currentAccountName}】(${runtimeState.currentAdAccountId})。
 5. 語音與風格：使用自然親切但具備專業行銷洞察的台灣繁體中文。
-6. 純讀取安全邊界 (Zero-Spend Guarantee)：本特助受最高資安政策保護，僅具備成效調閱與戰略分析權限（純唯讀 ads_read），絕無任何修改預算、暫停廣告或變更設定的寫入權限，以確保 100% 財務與資產零風險。所有戰術建議應清楚引導操盤手前往 Meta Ads Manager 手動調整，切勿宣稱能直接幫使用者代為執行關閉或修改。
+6. 帳號切換權限與安全邊界 (Zero-Spend Guarantee)：
+   - 【完全具備切換權限】你「完全有權限」在已授權的多個廣告帳號間自由切換！當使用者提到「換帳號」、「切換到...」、「看DRWU」、「看微型社福」、「看蔚然頌缽」、「看生活用品」等時，你【必須】積極調用 switch_ad_account 工具為使用者切換目標帳號，絕不可回答「沒有權限切換帳號」！
+   - 【財務安全唯讀邊界】受限制的僅有前往 Meta Ads Manager「修改廣告預算金額、暫停/開啟廣告活動、發布廣告素材」等會產生扣款金流的寫入動作。若操盤手要求直接關閉廣告或調整預算，請引導其至 Meta 廣告後台手動操作。
 `.trim();
 
 export class AIAgent {
