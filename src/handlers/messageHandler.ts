@@ -124,8 +124,13 @@ export async function handleTextMessage(
       return;
     }
 
-    // 指令 4: 切換帳號 / 換帳號（全面升級：動態讀取全帳號庫 + 智慧模糊比對 + 一鍵 Quick Reply）
-    if (/^(切換|換帳號|換到|換成|切換帳號|帳號切換|切換到|切換成)/i.test(trimmed)) {
+    // 指令 4: 切換帳號 / 換帳號 / 帳號選單（支援 1.、1、換帳號、帳號、有哪些帳號等）
+    if (
+      /^(1\.|1$|1\s|1、|1-|\(?1\)?)/i.test(trimmed) ||
+      /^(請|幫我|我要)?(切換|換帳號|換\s*帳號|更換帳號|切換帳號|帳號切換|帳號清單|帳號列表|有哪些帳號|看帳號|查帳號|所有帳號|選帳號|換品牌|切換品牌|換到|換成|切換到|切換成|轉到|帳號$)/i.test(
+        trimmed
+      )
+    ) {
       // 檢查是否包含特定帳號關鍵字
       const matchResult = await AccountManager.matchAndSwitchAccount(trimmed);
 
@@ -174,6 +179,26 @@ export async function handleTextMessage(
       lastMsg.quickReply = { items: quickReplyItems };
 
       await safeSendMessages(lineClient, replyToken, userId, replyMessages);
+      return;
+    }
+
+    // 指令 4.5: 輸入 2 或 2.（引導自然語言切換）
+    if (/^(2\.|2$|2\s|2、|2-|\(?2\)?)/i.test(trimmed)) {
+      await safeSendMessages(lineClient, replyToken, userId, [
+        {
+          type: 'text',
+          text: `🗣️ 【方式二：自然語言快速切換】\n\n您可以直接在對話框輸入想查看的專案名稱：\n👉「換成微型社福」\n👉「切換到蔚然頌缽」\n👉「我想看生活用品」\n👉「看 DR.WU」\n\n特助會自動為您切換，並直接送上 7 天最新成效戰情！\n\n（💡 亦可點選下方快捷膠囊一鍵切換）：`,
+          quickReply: {
+            items: [
+              { type: 'action', action: { type: 'message', label: '切換 微型社福', text: '切換 微型社福' } },
+              { type: 'action', action: { type: 'message', label: '切換 蔚然頌缽', text: '切換 蔚然頌缽' } },
+              { type: 'action', action: { type: 'message', label: '切換 生活用品', text: '切換 生活用品' } },
+              { type: 'action', action: { type: 'message', label: '切換 DR.WU', text: '切換 DR.WU' } },
+              { type: 'action', action: { type: 'message', label: '🏢 查看所有 13 個帳號', text: '換帳號' } },
+            ],
+          },
+        },
+      ]);
       return;
     }
 

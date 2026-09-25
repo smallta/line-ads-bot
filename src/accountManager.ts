@@ -77,14 +77,17 @@ export class AccountManager {
   }> {
     const accounts = await this.getAccessibleAccounts();
 
-    // 清洗輸入字串：移除常見口語前綴（例如「幫我切換到」、「換成」、「切換成」、「目標設定為」等）
+    // 清洗輸入字串：移除常見口語前綴、列表編號與帳號查詢關鍵字（例如「1.」、「1」、「幫我切換到」、「換成」等）
     let clean = userInput
-      .replace(/^(請|幫我|我要)?(切換|換帳號|換到|換成|選|設為|改為|看)/i, '')
+      .replace(/^(1\.|2\.|3\.|1|2|3)[\s、.]*/i, '')
+      .replace(/^(請|幫我|我要)?(切換|換帳號|換\s*帳號|換到|換成|選|設為|改為|看)/i, '')
       .replace(/^(廣告|帳號|目標|到|成|至|為)/i, '')
-      .replace(/^(廣告|帳號|目標)/i, '')
+      .replace(/^(有哪些|所有|全部)?(廣告|帳號|目標|清單|列表)/i, '')
+      .replace(/^(有哪些|所有|全部)/i, '')
       .replace(/^[:：\s]+|[:：\s]+$/g, '')
       .trim();
 
+    // 若清洗後為空（例如僅輸入「換帳號」、「切換」、「1.」、「有哪些帳號」等），直接返回所有可用帳號清單供用戶點選
     if (!clean) {
       return { success: false, availableAccounts: accounts };
     }
@@ -120,8 +123,8 @@ export class AccountManager {
         sanitize(a.name) === cleanSanitized
     );
 
-    // 3. 雙向包含模糊搜尋 (Fuzzy Containment)
-    if (!match) {
+    // 3. 雙向包含模糊搜尋 (Fuzzy Containment) - 至少需 2 個字元，嚴禁單一字元/數字亂比對 (例如避免 "1" 誤配 "91FB")
+    if (!match && cleanSanitized.length >= 2) {
       match = accounts.find(
         (a) =>
           sanitize(a.shortName).includes(cleanSanitized) ||

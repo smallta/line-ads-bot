@@ -31,7 +31,16 @@ export const KNOWN_ACCOUNTS: Record<string, { id: string; name: string; currency
   'DR.WU': { id: 'act_6666271896827259', name: 'DR. Wu (Transparency)', currency: 'TWD' },
   'DRWU': { id: 'act_6666271896827259', name: 'DR. Wu (Transparency)', currency: 'TWD' },
   '蝦皮CPAS': { id: 'act_436752879347374', name: 'Dr. Wu_蝦皮 CPAS', currency: 'TWD' },
+  'DR.WU 蝦皮': { id: 'act_436752879347374', name: 'Dr. Wu_蝦皮 CPAS', currency: 'TWD' },
   '科懋': { id: 'act_1254249735550297', name: '91FB_科懋生物科技', currency: 'TWD' },
+  '科懋 PChome': { id: 'act_4062385184016497', name: '91FB_科懋生物科技-CPAS-PChome', currency: 'TWD' },
+  '生活用品': { id: 'act_755500688734546', name: '【生活用品】公益國際', currency: 'TWD' },
+  '蔚然頌缽': { id: 'act_296133962362410', name: '蔚然頌缽 音療堂', currency: 'TWD' },
+  '頌缽 new': { id: 'act_436074055910653', name: '頌缽_new', currency: 'TWD' },
+  'Smallta Chen': { id: 'act_10209459378536835', name: 'Smallta Chen', currency: 'USD' },
+  'sephiroth': { id: 'act_164267619', name: 'sephiroth', currency: 'TWD' },
+  'm2': { id: 'act_925148397169036', name: 'm2', currency: 'USD' },
+  'test': { id: 'act_1081893298921164', name: 'test', currency: 'TWD' },
 };
 
 // 狀態記憶體：記錄目前對話中選定的廣告帳號
