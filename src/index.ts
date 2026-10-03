@@ -41,28 +41,34 @@ app.get('/logs', (req, res) => {
   res.type('text/plain; charset=utf-8').send(runtimeLogs.join('\n') || '尚無日誌記錄');
 });
 
-// 外部排程觸發端點 (用於定時喚醒與觸發晨報，極簡回傳 2 字元 OK 避免超出 cron 服務大小限制)
-app.all('/cron/push-brief', async (req, res) => {
-  console.log('⏰ [External Trigger] 收到排程觸發請求，開始執行晨報推播...');
-  try {
-    await pushMorningBrief();
-    res.status(200).send('OK');
-  } catch (err: any) {
-    console.error('❌ [External Trigger] 晨報推送失敗:', err);
-    res.status(500).send('ERR');
-  }
+// 外部排程觸發端點 (用於定時喚醒與觸發晨報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
+app.all('/cron/push-brief', (req, res) => {
+  console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行晨報推播...');
+  res.status(200).send('OK');
+
+  setImmediate(async () => {
+    try {
+      await pushMorningBrief();
+      console.log('✅ [External Trigger] 背景晨報推播成功完成！');
+    } catch (err: any) {
+      console.error('❌ [External Trigger] 背景晨報推送失敗:', err.message);
+    }
+  });
 });
 
-// 外部排程觸發端點 (用於定時喚醒與觸發每週週報)
-app.all('/cron/push-weekly', async (req, res) => {
-  console.log('⏰ [External Trigger] 收到排程觸發請求，開始執行每週成效週報推播...');
-  try {
-    await pushWeeklyReport();
-    res.status(200).send('OK');
-  } catch (err: any) {
-    console.error('❌ [External Trigger] 週報推送失敗:', err);
-    res.status(500).send('ERR');
-  }
+// 外部排程觸發端點 (用於定時喚醒與觸發每週週報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
+app.all('/cron/push-weekly', (req, res) => {
+  console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行每週成效週報推播...');
+  res.status(200).send('OK');
+
+  setImmediate(async () => {
+    try {
+      await pushWeeklyReport();
+      console.log('✅ [External Trigger] 背景週報推播成功完成！');
+    } catch (err: any) {
+      console.error('❌ [External Trigger] 背景週報推送失敗:', err.message);
+    }
+  });
 });
 
 // LINE Webhook 端點 (需經過 LINE 簽章驗證中介軟體)
