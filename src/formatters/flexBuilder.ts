@@ -745,7 +745,7 @@ export class FlexBuilder {
                           size: 'xxs',
                           color: delta!.spendPct >= 0 ? '#2563EB' : '#64748B',
                           weight: 'bold',
-                          margin: 'xxs',
+                          margin: 'xs',
                         },
                       ]
                     : []),
@@ -774,7 +774,7 @@ export class FlexBuilder {
                           size: 'xxs',
                           color: delta!.roasDiff >= 0 ? '#059669' : '#DC2626',
                           weight: 'bold',
-                          margin: 'xxs',
+                          margin: 'xs',
                         },
                       ]
                     : []),
@@ -1023,7 +1023,7 @@ export class FlexBuilder {
                 size: 'xxs',
                 color: statusColor,
                 wrap: true,
-                margin: 'xxs',
+                margin: 'xs',
               },
             ],
           },
