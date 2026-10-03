@@ -53,6 +53,18 @@ app.all('/cron/push-brief', async (req, res) => {
   }
 });
 
+// 外部排程觸發端點 (用於定時喚醒與觸發每週週報)
+app.all('/cron/push-weekly', async (req, res) => {
+  console.log('⏰ [External Trigger] 收到排程觸發請求，開始執行每週成效週報推播...');
+  try {
+    await pushWeeklyReport();
+    res.status(200).send('OK');
+  } catch (err: any) {
+    console.error('❌ [External Trigger] 週報推送失敗:', err);
+    res.status(500).send('ERR');
+  }
+});
+
 // LINE Webhook 端點 (需經過 LINE 簽章驗證中介軟體)
 app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
   const events: WebhookEvent[] = req.body.events;
@@ -88,6 +100,7 @@ app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
 
 import cron from 'node-cron';
 import { pushMorningBrief } from './cron/pushMorningBrief.js';
+import { pushWeeklyReport } from './cron/pushWeeklyReport.js';
 
 // 每日 09:00 (Asia/Taipei) 自動推播廣告成效晨報
 cron.schedule(
@@ -98,6 +111,22 @@ cron.schedule(
       await pushMorningBrief();
     } catch (err: any) {
       console.error('❌ [Cron] 自動推播失敗:', err);
+    }
+  },
+  {
+    timezone: 'Asia/Taipei',
+  }
+);
+
+// 每週一 10:00 (Asia/Taipei) 自動推播廣告成效週報
+cron.schedule(
+  '0 10 * * 1',
+  async () => {
+    console.log('⏰ [Cron] 觸發每週一 10:00 廣告成效週報自動推播...');
+    try {
+      await pushWeeklyReport();
+    } catch (err: any) {
+      console.error('❌ [Cron] 週報自動推播失敗:', err);
     }
   },
   {

@@ -3,6 +3,7 @@ import { config, runtimeState, KNOWN_ACCOUNTS } from '../config.js';
 import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
 import { pushMorningBrief } from '../cron/pushMorningBrief.js';
+import { pushWeeklyReport } from '../cron/pushWeeklyReport.js';
 import { AIAgent } from '../aiAgent.js';
 import { AccountManager } from '../accountManager.js';
 
@@ -105,6 +106,33 @@ export async function handleTextMessage(
         { type: 'text', text: '🚀 正在為您即時生成並推播最新廣告晨報戰情卡片...' },
       ]);
       await pushMorningBrief();
+      return;
+    }
+
+    // 指令 1.8: 週報 / 本週週報 / 看週報 / weekly
+    if (/^(週報|本週週報|看週報|查週報|每週報告|每週週報|weekly|weekly\s*report)$/i.test(trimmed)) {
+      const [metrics, campaigns, fatigued] = await Promise.all([
+        MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'last_7d'),
+        MetaService.listCampaigns(runtimeState.currentAdAccountId, 'last_7d', 5),
+        MetaService.detectFatigue(runtimeState.currentAdAccountId),
+      ]);
+      const weeklyFlex = FlexBuilder.buildWeeklyReportFlex(
+        metrics,
+        campaigns,
+        fatigued,
+        runtimeState.currentAccountName,
+        '過去 7 天綜合數據'
+      );
+      await safeSendMessages(lineClient, replyToken, userId, [weeklyFlex]);
+      return;
+    }
+
+    // 指令 1.9: 手動測試或即時推播週報
+    if (/^(推播週報|發送週報)$/i.test(trimmed)) {
+      await safeSendMessages(lineClient, replyToken, userId, [
+        { type: 'text', text: '📊 正在為您即時生成並推播每週廣告成效週報卡片...' },
+      ]);
+      await pushWeeklyReport();
       return;
     }
 

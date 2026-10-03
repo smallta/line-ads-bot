@@ -452,10 +452,11 @@ export class FlexBuilder {
             layout: 'vertical',
             spacing: 'sm',
             contents: [
-              { type: 'text', text: '📊 輸入「看成效」或「大盤」➔ 調閱近7天花費與ROAS', size: 'xs', color: '#0F172A' },
+              { type: 'text', text: '📊 輸入「看週報」或「週報」➔ 調閱每週成效週報戰情卡', size: 'xs', color: '#0F172A', weight: 'bold' },
+              { type: 'text', text: '📈 輸入「看成效」或「大盤」➔ 調閱近7天花費與ROAS', size: 'xs', color: '#0F172A' },
               { type: 'text', text: '⚡ 輸入「查疲勞」➔ 執行三選二素材疲勞檢測', size: 'xs', color: '#0F172A' },
               { type: 'text', text: '🎯 輸入「查活動」➔ 列出當前活躍活動與投報率', size: 'xs', color: '#0F172A' },
-              { type: 'text', text: '🔄 輸入「切換 一起夢想」或「切換 DR.WU」➔ 切換監控目標', size: 'xs', color: '#0F172A' },
+              { type: 'text', text: '🔄 輸入「換帳號」或「切換」➔ 一秒切換 13 個品牌帳號', size: 'xs', color: '#0F172A' },
             ],
           },
         ],
@@ -468,10 +469,16 @@ export class FlexBuilder {
         contents: [
           {
             type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '📊 看週報', text: '看週報' },
+          },
+          {
+            type: 'button',
             style: 'primary',
             color: '#2563EB',
             height: 'sm',
-            action: { type: 'message', label: '立即看成效', text: '看成效' },
+            action: { type: 'message', label: '📈 看成效', text: '看成效' },
           },
         ],
       },
@@ -590,6 +597,255 @@ export class FlexBuilder {
     return {
       type: 'flex',
       altText: '可切換的 Meta 廣告帳號清單',
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 6. 建立每週廣告成效週報 (Weekly Report) Flex Message
+   */
+  public static buildWeeklyReportFlex(
+    metrics: OverviewMetrics,
+    campaigns: CampaignSummary[],
+    fatigued: FatigueSummary[],
+    accountName: string,
+    datePresetLabel = '過去 7 天全盤數據'
+  ): messagingApi.FlexMessage {
+    const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
+    const topCampaigns = campaigns.slice(0, 3);
+    const hasFatigue = fatigued.length > 0;
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#1E1B4B',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: '📊 META 廣告成效週報',
+                size: 'xs',
+                color: '#A5B4FC',
+                weight: 'bold',
+              },
+              {
+                type: 'text',
+                text: 'WEEKLY AUDIT',
+                size: 'xxs',
+                color: '#818CF8',
+                align: 'end',
+                weight: 'bold',
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: `【${accountName}】`,
+            size: 'xl',
+            color: '#FFFFFF',
+            weight: 'bold',
+            margin: 'xs',
+          },
+          {
+            type: 'text',
+            text: `區間：${datePresetLabel} ｜ 幣別：${metrics.currency}`,
+            size: 'xxs',
+            color: '#C7D2FE',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        paddingAll: '14px',
+        contents: [
+          // 總預算與 ROAS 核心展示區
+          {
+            type: 'box',
+            layout: 'horizontal',
+            backgroundColor: '#F8FAFC',
+            cornerRadius: '10px',
+            paddingAll: '12px',
+            contents: [
+              {
+                type: 'box',
+                layout: 'vertical',
+                flex: 3,
+                contents: [
+                  { type: 'text', text: '本週總花費', size: 'xxs', color: '#64748B' },
+                  {
+                    type: 'text',
+                    text: `$${metrics.spend.toLocaleString()}`,
+                    size: 'xl',
+                    weight: 'bold',
+                    color: '#0F172A',
+                    margin: 'xs',
+                  },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                flex: 2,
+                alignItems: 'flex-end',
+                contents: [
+                  { type: 'text', text: '大盤 ROAS', size: 'xxs', color: '#64748B' },
+                  {
+                    type: 'text',
+                    text: `${metrics.roas.toFixed(2)}x`,
+                    size: 'xl',
+                    weight: 'bold',
+                    color: roasColor,
+                    margin: 'xs',
+                  },
+                ],
+              },
+            ],
+          },
+          // 4 大次要關鍵指標 (2x2 Grid)
+          {
+            type: 'box',
+            layout: 'horizontal',
+            spacing: 'sm',
+            contents: [
+              {
+                type: 'box',
+                layout: 'vertical',
+                flex: 1,
+                backgroundColor: '#F1F5F9',
+                paddingAll: '8px',
+                cornerRadius: '8px',
+                contents: [
+                  { type: 'text', text: '核心轉換', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${metrics.conversions} 筆`, size: 'sm', weight: 'bold', color: '#0F172A' },
+                  { type: 'text', text: `CPA $${metrics.cpa.toFixed(1)}`, size: 'xxs', color: '#475569' },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                flex: 1,
+                backgroundColor: '#F1F5F9',
+                paddingAll: '8px',
+                cornerRadius: '8px',
+                contents: [
+                  { type: 'text', text: '曝光與點擊', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${metrics.clicks.toLocaleString()} 點擊`, size: 'sm', weight: 'bold', color: '#0F172A' },
+                  { type: 'text', text: `CTR ${metrics.ctr.toFixed(2)}% | $${metrics.cpc.toFixed(1)}`, size: 'xxs', color: '#475569' },
+                ],
+              },
+            ],
+          },
+          // 🏆 獲利 Top 3 活動小榜
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'sm',
+            contents: [
+              {
+                type: 'text',
+                text: '🏆 本週重點行銷活動 (Top 3)',
+                size: 'xs',
+                weight: 'bold',
+                color: '#334155',
+                margin: 'xs',
+              },
+              ...topCampaigns.map((c, i) => ({
+                type: 'box',
+                layout: 'horizontal',
+                alignItems: 'center',
+                paddingAll: '6px',
+                backgroundColor: i === 0 ? '#EFF6FF' : '#FFFFFF',
+                cornerRadius: '6px',
+                margin: 'xs',
+                contents: [
+                  {
+                    type: 'text',
+                    text: `${i + 1}. ${c.name}`,
+                    size: 'xs',
+                    weight: i === 0 ? 'bold' : 'regular',
+                    color: '#1E293B',
+                    flex: 4,
+                    wrap: false,
+                  },
+                  {
+                    type: 'text',
+                    text: `ROAS ${c.roas.toFixed(2)}x`,
+                    size: 'xs',
+                    weight: 'bold',
+                    color: c.roas >= 2.0 ? '#059669' : '#2563EB',
+                    flex: 2,
+                    align: 'end',
+                  },
+                ],
+              })),
+            ],
+          },
+          // ⚠️ 素材健康度檢測結果
+          {
+            type: 'box',
+            layout: 'horizontal',
+            alignItems: 'center',
+            backgroundColor: hasFatigue ? '#FEF2F2' : '#F0FDF4',
+            paddingAll: '10px',
+            cornerRadius: '8px',
+            margin: 'sm',
+            contents: [
+              {
+                type: 'text',
+                text: hasFatigue
+                  ? `⚠️ 疲勞警報：${fatigued.length} 支素材頻率過高或成效衰退`
+                  : '✅ 素材健康：全素材運行正常，無嚴重疲勞訊號',
+                size: 'xs',
+                weight: 'bold',
+                color: hasFatigue ? '#991B1B' : '#166534',
+                wrap: true,
+              },
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        paddingAll: '10px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🎯 查活動', text: '查活動' },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '⚡ 查疲勞', text: '查疲勞' },
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#4F46E5',
+            height: 'sm',
+            action: { type: 'message', label: '🏢 換帳號', text: '換帳號' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `📊【${accountName}】Meta 廣告成效週報 (ROAS ${metrics.roas.toFixed(2)}x)`,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }
