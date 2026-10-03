@@ -39,6 +39,12 @@ export class AccountManager {
           short = '蔚然頌缽';
         } else if (acc.name.includes('頌缽')) {
           short = '頌缽 new';
+        } else if (acc.name.includes('生鮮') || acc.name.includes('生鮮美食')) {
+          short = '生鮮與醫美';
+        } else if (acc.name.includes('美妝保養') || acc.name.includes('心靈保健')) {
+          short = '美妝與心靈';
+        } else if (acc.name.includes('悅姿')) {
+          short = '悅姿醫美';
         }
 
         return {
@@ -149,6 +155,12 @@ export class AccountManager {
           : accounts.find((a) => a.id === 'act_296133962362410');
       } else if (cleanLower.includes('生活') || cleanLower.includes('公益國際')) {
         match = accounts.find((a) => a.id === 'act_755500688734546');
+      } else if (cleanLower.includes('生鮮') || cleanLower.includes('美食')) {
+        match = accounts.find((a) => a.id === 'act_173149270766368');
+      } else if (cleanLower.includes('美妝') || cleanLower.includes('心靈')) {
+        match = accounts.find((a) => a.id === 'act_379347667227517');
+      } else if (cleanLower.includes('悅姿')) {
+        match = accounts.find((a) => a.id === 'act_838676849052863');
       }
     }
 

@@ -24,22 +24,21 @@ export async function pushWeeklyReport() {
   const lineClient = new messagingApi.MessagingApiClient({ channelAccessToken: token });
 
   try {
-    // 1. 抓取大盤週數據 (以近 7 天綜合指標為主)
-    const metrics = await MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'last_7d');
+    // 1. 抓取大盤週數據 (包含 WoW 環比)
+    const [weeklyComp, campaigns, fatigued] = await Promise.all([
+      MetaService.getWeeklyComparison(runtimeState.currentAdAccountId),
+      MetaService.listCampaigns(runtimeState.currentAdAccountId, 'last_7d', 5),
+      MetaService.detectFatigue(runtimeState.currentAdAccountId),
+    ]);
 
-    // 2. 抓取本週活躍活動列表 Top 5
-    const campaigns = await MetaService.listCampaigns(runtimeState.currentAdAccountId, 'last_7d', 5);
-
-    // 3. 檢測是否有疲勞素材
-    const fatigued = await MetaService.detectFatigue(runtimeState.currentAdAccountId);
-
-    // 4. 構建週報專用 Flex 卡片
+    // 2. 構建週報專用 Flex 卡片 (含 WoW 環比與資本配置指引)
     const weeklyFlex = FlexBuilder.buildWeeklyReportFlex(
-      metrics,
+      weeklyComp.current,
       campaigns,
       fatigued,
       runtimeState.currentAccountName,
-      '過去 7 天全盤數據'
+      '過去 7 天綜合數據',
+      weeklyComp.delta
     );
 
     for (const adminId of adminIds) {

@@ -41,6 +41,13 @@ export const KNOWN_ACCOUNTS: Record<string, { id: string; name: string; currency
   'sephiroth': { id: 'act_164267619', name: 'sephiroth', currency: 'TWD' },
   'm2': { id: 'act_925148397169036', name: 'm2', currency: 'USD' },
   'test': { id: 'act_1081893298921164', name: 'test', currency: 'TWD' },
+  '生鮮美食': { id: 'act_173149270766368', name: '【生鮮美食】、【醫美】', currency: 'TWD' },
+  '生鮮美食醫美': { id: 'act_173149270766368', name: '【生鮮美食】、【醫美】', currency: 'TWD' },
+  '美妝保養心靈保健': { id: 'act_379347667227517', name: '【美妝保養】【心靈保健】', currency: 'TWD' },
+  '美妝保養': { id: 'act_379347667227517', name: '【美妝保養】【心靈保健】', currency: 'TWD' },
+  '心靈保健': { id: 'act_379347667227517', name: '【美妝保養】【心靈保健】', currency: 'TWD' },
+  '悅姿醫美': { id: 'act_838676849052863', name: '悅姿醫美診所', currency: 'TWD' },
+  '悅姿': { id: 'act_838676849052863', name: '悅姿醫美診所', currency: 'TWD' },
 };
 
 // 狀態記憶體：記錄目前對話中選定的廣告帳號

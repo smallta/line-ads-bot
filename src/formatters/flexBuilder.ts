@@ -1,5 +1,5 @@
 import { messagingApi } from '@line/bot-sdk';
-import { OverviewMetrics, CampaignSummary, FatigueSummary } from '../metaService.js';
+import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison } from '../metaService.js';
 
 export class FlexBuilder {
   /**
@@ -452,11 +452,12 @@ export class FlexBuilder {
             layout: 'vertical',
             spacing: 'sm',
             contents: [
-              { type: 'text', text: '📊 輸入「看週報」或「週報」➔ 調閱每週成效週報戰情卡', size: 'xs', color: '#0F172A', weight: 'bold' },
-              { type: 'text', text: '📈 輸入「看成效」或「大盤」➔ 調閱近7天花費與ROAS', size: 'xs', color: '#0F172A' },
-              { type: 'text', text: '⚡ 輸入「查疲勞」➔ 執行三選二素材疲勞檢測', size: 'xs', color: '#0F172A' },
-              { type: 'text', text: '🎯 輸入「查活動」➔ 列出當前活躍活動與投報率', size: 'xs', color: '#0F172A' },
-              { type: 'text', text: '🔄 輸入「換帳號」或「切換」➔ 一秒切換 13 個品牌帳號', size: 'xs', color: '#0F172A' },
+              { type: 'text', text: '📊 輸入「看週報」➔ WoW 環比趨勢與資本配置指引', size: 'xs', color: '#0F172A', weight: 'bold' },
+              { type: 'text', text: '🛡️ 輸入「巡邏」➔ 16 帳號全域紅綠燈晨檢 (違規/休眠)', size: 'xs', color: '#0F172A', weight: 'bold' },
+              { type: 'text', text: '🧛 輸入「素材象限」➔ 吸血鬼 vs 金牛素材四象限診斷', size: 'xs', color: '#0F172A', weight: 'bold' },
+              { type: 'text', text: '📈 輸入「看成效」➔ 調閱近7天花費與 ROAS 大盤', size: 'xs', color: '#0F172A' },
+              { type: 'text', text: '⚡ 輸入「查疲勞」➔ 執行素材疲勞檢測', size: 'xs', color: '#0F172A' },
+              { type: 'text', text: '🔄 輸入「換帳號」➔ 一鍵切換 16 個廣告帳號', size: 'xs', color: '#0F172A' },
             ],
           },
         ],
@@ -604,16 +605,62 @@ export class FlexBuilder {
   /**
    * 6. 建立每週廣告成效週報 (Weekly Report) Flex Message
    */
+  /**
+   * 6. 建立每週廣告成效週報 (Weekly Report) Flex Message (含 WoW 環比與資本配置指引)
+   */
   public static buildWeeklyReportFlex(
     metrics: OverviewMetrics,
     campaigns: CampaignSummary[],
     fatigued: FatigueSummary[],
     accountName: string,
-    datePresetLabel = '過去 7 天全盤數據'
+    datePresetLabel = '過去 7 天全盤數據',
+    delta?: WeeklyComparison['delta']
   ): messagingApi.FlexMessage {
     const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
     const topCampaigns = campaigns.slice(0, 3);
     const hasFatigue = fatigued.length > 0;
+
+    // WoW 環比數據展示輔助文字
+    const spendWoW = delta
+      ? `${delta.spendPct >= 0 ? '🔺 +' : '🔻 '}${Math.abs(delta.spendPct).toFixed(1)}% vs上週`
+      : undefined;
+    const roasWoW = delta
+      ? `${delta.roasDiff >= 0 ? '🔺 +' : '🔻 '}${Math.abs(delta.roasDiff).toFixed(2)} vs上週`
+      : undefined;
+    const convWoW = delta
+      ? `${delta.conversionsDiff >= 0 ? '🔺 +' : '🔻 '}${Math.abs(delta.conversionsDiff)} 筆`
+      : undefined;
+    const cpaWoW = delta
+      ? `${delta.cpaPct <= 0 ? '🟢 降 ' : '🔴 升 '}${Math.abs(delta.cpaPct).toFixed(1)}%`
+      : undefined;
+
+    // 💡 資本配置指引邏輯 (Budget Allocation Guidance)
+    let adviceTitle = '💡 資本配置指引';
+    let adviceText = '維持目前投放節奏，密切監控轉換成本。';
+    let adviceColor = '#1E293B';
+    let adviceBg = '#F8FAFC';
+
+    if (metrics.roas >= 2.0 && (!delta || delta.roasDiff >= 0)) {
+      adviceTitle = '🚀 資本配置：攻守兼備 (建議加碼)';
+      adviceText = '大盤 ROAS 穩健成長且突破 2.0x！建議將預算往 Top 1 核心活動小幅加碼 10~15% 擴大戰果。';
+      adviceColor = '#065F46';
+      adviceBg = '#ECFDF5';
+    } else if (metrics.roas >= 2.0 && delta && delta.roasDiff < 0) {
+      adviceTitle = '⚠️ 資本配置：防守觀望 (維持規模)';
+      adviceText = `ROAS 雖仍在 ${metrics.roas.toFixed(2)}x 獲利水位，但較上週衰退，建議維持目前預算規模並檢驗受眾飽和度。`;
+      adviceColor = '#92400E';
+      adviceBg = '#FFFBEB';
+    } else if (metrics.roas < 1.0) {
+      adviceTitle = '🛑 資本配置：止血防禦 (收攏預算)';
+      adviceText = '整體投報率低於 1.0x 損平線，建議關閉末端低效素材，將預算回防至 ROAS 最高之基本盤活動。';
+      adviceColor = '#991B1B';
+      adviceBg = '#FEF2F2';
+    } else {
+      adviceTitle = '⚖️ 資本配置：微調優化 (汰換素材)';
+      adviceText = '成效維持在損平邊界，建議輸入「素材象限」排查高點低轉之吸血鬼素材，釋放無效預算。';
+      adviceColor = '#1E40AF';
+      adviceBg = '#EFF6FF';
+    }
 
     const bubble: any = {
       type: 'bubble',
@@ -668,7 +715,7 @@ export class FlexBuilder {
         spacing: 'sm',
         paddingAll: '14px',
         contents: [
-          // 總預算與 ROAS 核心展示區
+          // 總預算與 ROAS 核心展示區 (含 WoW 環比)
           {
             type: 'box',
             layout: 'horizontal',
@@ -690,6 +737,18 @@ export class FlexBuilder {
                     color: '#0F172A',
                     margin: 'xs',
                   },
+                  ...(spendWoW
+                    ? [
+                        {
+                          type: 'text',
+                          text: spendWoW,
+                          size: 'xxs',
+                          color: delta!.spendPct >= 0 ? '#2563EB' : '#64748B',
+                          weight: 'bold',
+                          margin: 'xxs',
+                        },
+                      ]
+                    : []),
                 ],
               },
               {
@@ -707,6 +766,18 @@ export class FlexBuilder {
                     color: roasColor,
                     margin: 'xs',
                   },
+                  ...(roasWoW
+                    ? [
+                        {
+                          type: 'text',
+                          text: roasWoW,
+                          size: 'xxs',
+                          color: delta!.roasDiff >= 0 ? '#059669' : '#DC2626',
+                          weight: 'bold',
+                          margin: 'xxs',
+                        },
+                      ]
+                    : []),
                 ],
               },
             ],
@@ -727,7 +798,23 @@ export class FlexBuilder {
                 contents: [
                   { type: 'text', text: '核心轉換', size: 'xxs', color: '#64748B' },
                   { type: 'text', text: `${metrics.conversions} 筆`, size: 'sm', weight: 'bold', color: '#0F172A' },
-                  { type: 'text', text: `CPA $${metrics.cpa.toFixed(1)}`, size: 'xxs', color: '#475569' },
+                  {
+                    type: 'text',
+                    text: `CPA $${metrics.cpa.toFixed(1)}${cpaWoW ? ` (${cpaWoW})` : ''}`,
+                    size: 'xxs',
+                    color: '#475569',
+                    wrap: true,
+                  },
+                  ...(convWoW
+                    ? [
+                        {
+                          type: 'text',
+                          text: `轉換 ${convWoW}`,
+                          size: 'xxs',
+                          color: delta!.conversionsDiff >= 0 ? '#059669' : '#DC2626',
+                        },
+                      ]
+                    : []),
                 ],
               },
               {
@@ -742,6 +829,32 @@ export class FlexBuilder {
                   { type: 'text', text: `${metrics.clicks.toLocaleString()} 點擊`, size: 'sm', weight: 'bold', color: '#0F172A' },
                   { type: 'text', text: `CTR ${metrics.ctr.toFixed(2)}% | $${metrics.cpc.toFixed(1)}`, size: 'xxs', color: '#475569' },
                 ],
+              },
+            ],
+          },
+          // 💡 資本配置指引區塊
+          {
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: adviceBg,
+            paddingAll: '10px',
+            cornerRadius: '8px',
+            margin: 'sm',
+            contents: [
+              {
+                type: 'text',
+                text: adviceTitle,
+                size: 'xs',
+                weight: 'bold',
+                color: adviceColor,
+              },
+              {
+                type: 'text',
+                text: adviceText,
+                size: 'xxs',
+                color: adviceColor,
+                wrap: true,
+                margin: 'xs',
               },
             ],
           },
@@ -834,6 +947,12 @@ export class FlexBuilder {
           },
           {
             type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🧛 素材象限', text: '素材象限' },
+          },
+          {
+            type: 'button',
             style: 'primary',
             color: '#4F46E5',
             height: 'sm',
@@ -846,6 +965,346 @@ export class FlexBuilder {
     return {
       type: 'flex',
       altText: `📊【${accountName}】Meta 廣告成效週報 (ROAS ${metrics.roas.toFixed(2)}x)`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 7. 建立 16 帳號全域紅綠燈晨檢 Flex Message (Cross-Account Sentinel)
+   */
+  public static buildPatrolFlex(patrolItems: PatrolItem[]): messagingApi.FlexMessage {
+    const criticalCount = patrolItems.filter((i) => i.status === 'critical').length;
+    const warningCount = patrolItems.filter((i) => i.status === 'warning').length;
+    const healthyCount = patrolItems.filter((i) => i.status === 'healthy').length;
+
+    const bannerBg = criticalCount > 0 ? '#7F1D1D' : warningCount > 0 ? '#1E293B' : '#064E3B';
+    const bannerStatusText =
+      criticalCount > 0
+        ? `🚨 發現 ${criticalCount} 個帳號異常`
+        : warningCount > 0
+        ? `⚠️ ${warningCount} 個帳號需留意`
+        : '✅ 全域 16 帳號運作平穩';
+
+    const rows = patrolItems.map((item) => {
+      const statusIcon = item.status === 'critical' ? '🔴' : item.status === 'warning' ? '🟡' : '🟢';
+      const statusColor = item.status === 'critical' ? '#DC2626' : item.status === 'warning' ? '#D97706' : '#059669';
+
+      return {
+        type: 'box',
+        layout: 'horizontal',
+        alignItems: 'center',
+        paddingAll: '8px',
+        backgroundColor: item.status === 'critical' ? '#FEF2F2' : '#FFFFFF',
+        cornerRadius: 'md',
+        margin: 'xs',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            flex: 4,
+            contents: [
+              {
+                type: 'box',
+                layout: 'horizontal',
+                alignItems: 'center',
+                spacing: 'xs',
+                contents: [
+                  { type: 'text', text: statusIcon, size: 'xs', flex: 0 },
+                  { type: 'text', text: item.name, weight: 'bold', size: 'sm', color: '#0F172A', flex: 1, wrap: false },
+                ],
+              },
+              {
+                type: 'text',
+                text:
+                  item.reason ||
+                  (item.spend7d > 0
+                    ? `7天花費 $${item.spend7d.toLocaleString()} (${item.currency})`
+                    : '近7天無花費'),
+                size: 'xxs',
+                color: statusColor,
+                wrap: true,
+                margin: 'xxs',
+              },
+            ],
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            flex: 2,
+            action: {
+              type: 'message',
+              label: '切換',
+              text: `切換 ${item.name}`,
+            },
+          },
+        ],
+      };
+    });
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'giga',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: bannerBg,
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '🛡️ 16 帳號全域紅綠燈巡邏', size: 'xs', color: '#CBD5E1', weight: 'bold' },
+              { type: 'text', text: 'SENTINEL PATROL', size: 'xxs', color: '#94A3B8', align: 'end' },
+            ],
+          },
+          {
+            type: 'text',
+            text: bannerStatusText,
+            size: 'lg',
+            color: '#FFFFFF',
+            weight: 'bold',
+            margin: 'xs',
+          },
+          {
+            type: 'text',
+            text: `🔴 違規/拒登: ${criticalCount} ｜ 🟡 注意/休眠: ${warningCount} ｜ 🟢 正常投放: ${healthyCount}`,
+            size: 'xxs',
+            color: '#E2E8F0',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'none',
+        paddingAll: '8px',
+        contents: rows,
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        paddingAll: '10px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🔄 重新巡邏', text: '巡邏' },
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#2563EB',
+            height: 'sm',
+            action: { type: 'message', label: '📊 當前週報', text: '看週報' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `🛡️ 16 帳號全域紅綠燈晨檢報告 (${bannerStatusText})`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 8. 建立吸血鬼 vs 金牛素材四象限分析 (Creative Matrix) Flex Message
+   */
+  public static buildCreativeMatrixFlex(
+    matrixData: { items: CreativeMatrixItem[]; avgCtr: number; avgRoas: number },
+    accountName: string
+  ): messagingApi.FlexMessage {
+    const { items, avgCtr, avgRoas } = matrixData;
+
+    const winning = items.filter((i) => i.quadrant === 'winning');
+    const vampire = items.filter((i) => i.quadrant === 'vampire');
+    const potential = items.filter((i) => i.quadrant === 'potential');
+    const fatigued = items.filter((i) => i.quadrant === 'fatigued');
+
+    const renderQuadSection = (
+      title: string,
+      tag: string,
+      tagColor: string,
+      bgColor: string,
+      quadItems: CreativeMatrixItem[],
+      guidance: string
+    ) => {
+      const topItems = quadItems.slice(0, 2);
+      return {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: bgColor,
+        cornerRadius: '8px',
+        paddingAll: '10px',
+        margin: 'sm',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            alignItems: 'center',
+            contents: [
+              { type: 'text', text: title, size: 'xs', weight: 'bold', color: '#0F172A', flex: 4 },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                backgroundColor: tagColor,
+                cornerRadius: '4px',
+                paddingStart: '6px',
+                paddingEnd: '6px',
+                paddingTop: '2px',
+                paddingBottom: '2px',
+                contents: [{ type: 'text', text: `${quadItems.length} 支`, size: 'xxs', color: '#FFFFFF', weight: 'bold' }],
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: guidance,
+            size: 'xxs',
+            color: '#475569',
+            wrap: true,
+            margin: 'xs',
+          },
+          ...(topItems.length > 0
+            ? topItems.map((item) => ({
+                type: 'box',
+                layout: 'horizontal',
+                margin: 'xs',
+                contents: [
+                  {
+                    type: 'text',
+                    text: item.name.length > 18 ? item.name.slice(0, 17) + '…' : item.name,
+                    size: 'xxs',
+                    color: '#1E293B',
+                    flex: 3,
+                  },
+                  {
+                    type: 'text',
+                    text: `CTR ${item.ctr.toFixed(1)}% | ROAS ${item.roas.toFixed(2)}x`,
+                    size: 'xxs',
+                    color: '#64748B',
+                    align: 'end',
+                    flex: 3,
+                  },
+                ],
+              }))
+            : [{ type: 'text', text: '（無符合此象限之活躍素材）', size: 'xxs', color: '#94A3B8', margin: 'xs' }]),
+        ],
+      };
+    };
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'giga',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#312E81',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '🎯 吸血鬼 vs 金牛素材四象限診斷', size: 'xs', color: '#C7D2FE', weight: 'bold' },
+              { type: 'text', text: 'CREATIVE MATRIX', size: 'xxs', color: '#818CF8', align: 'end' },
+            ],
+          },
+          {
+            type: 'text',
+            text: `【${accountName}】`,
+            size: 'xl',
+            color: '#FFFFFF',
+            weight: 'bold',
+            margin: 'xs',
+          },
+          {
+            type: 'text',
+            text: `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均 ROAS ${avgRoas.toFixed(2)}x (近7天)`,
+            size: 'xxs',
+            color: '#E0E7FF',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'none',
+        paddingAll: '10px',
+        contents: [
+          renderQuadSection(
+            '🏆 金牛素材 (High CTR & High ROAS)',
+            '金牛',
+            '#059669',
+            '#ECFDF5',
+            winning,
+            '💡 點擊強且超賺錢！建議加大預算擴圈或製作類似素材衍伸。'
+          ),
+          renderQuadSection(
+            '🧛 吸血鬼素材 (High CTR & Low ROAS)',
+            '吸血鬼',
+            '#DC2626',
+            '#FEF2F2',
+            vampire,
+            '🛑 數據表象與意圖錯位！高點擊卻進站不買，屬於吃錢怪獸，應檢查落地頁或降權！'
+          ),
+          renderQuadSection(
+            '💎 潛力金礦 (Low CTR & High ROAS)',
+            '潛力',
+            '#2563EB',
+            '#EFF6FF',
+            potential,
+            '💡 受眾精準轉單極佳，但吸睛度偏低。建議更換前3秒 Hook 或加強縮圖吸引力！'
+          ),
+          renderQuadSection(
+            '🥀 疲勞淘汰 (Low CTR & Low ROAS)',
+            '疲勞',
+            '#64748B',
+            '#F8FAFC',
+            fatigued,
+            '✂️ 點擊與轉化雙低，持續空燒預算。建議暫停投放以釋放預算額度。'
+          ),
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        paddingAll: '10px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '⚡ 查疲勞', text: '查疲勞' },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '📊 看週報', text: '看週報' },
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#4F46E5',
+            height: 'sm',
+            action: { type: 'message', label: '🛡️ 全域巡邏', text: '巡邏' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `🎯【${accountName}】素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛素材`,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }

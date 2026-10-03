@@ -109,19 +109,20 @@ export async function handleTextMessage(
       return;
     }
 
-    // 指令 1.8: 週報 / 本週週報 / 看週報 / weekly
+    // 指令 1.8: 週報 / 本週週報 / 看週報 / weekly (含 WoW 環比與資本配置指引)
     if (/^(週報|本週週報|看週報|查週報|每週報告|每週週報|weekly|weekly\s*report)$/i.test(trimmed)) {
-      const [metrics, campaigns, fatigued] = await Promise.all([
-        MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'last_7d'),
+      const [weeklyComp, campaigns, fatigued] = await Promise.all([
+        MetaService.getWeeklyComparison(runtimeState.currentAdAccountId),
         MetaService.listCampaigns(runtimeState.currentAdAccountId, 'last_7d', 5),
         MetaService.detectFatigue(runtimeState.currentAdAccountId),
       ]);
       const weeklyFlex = FlexBuilder.buildWeeklyReportFlex(
-        metrics,
+        weeklyComp.current,
         campaigns,
         fatigued,
         runtimeState.currentAccountName,
-        '過去 7 天綜合數據'
+        '過去 7 天綜合數據',
+        weeklyComp.delta
       );
       await safeSendMessages(lineClient, replyToken, userId, [weeklyFlex]);
       return;
@@ -133,6 +134,23 @@ export async function handleTextMessage(
         { type: 'text', text: '📊 正在為您即時生成並推播每週廣告成效週報卡片...' },
       ]);
       await pushWeeklyReport();
+      return;
+    }
+
+    // 指令 1.95: 16 帳號全域紅綠燈晨檢 (Cross-Account Sentinel)
+    if (/^(巡邏|全域巡邏|帳號巡邏|全域體檢|帳號體檢|檢查所有帳號|檢查帳號|紅綠燈|patrol|sentinel)$/i.test(trimmed)) {
+      const accounts = await AccountManager.getAccessibleAccounts();
+      const patrolItems = await MetaService.patrolAccounts(accounts);
+      const patrolFlex = FlexBuilder.buildPatrolFlex(patrolItems);
+      await safeSendMessages(lineClient, replyToken, userId, [patrolFlex]);
+      return;
+    }
+
+    // 指令 1.98: 吸血鬼 vs 金牛素材四象限 (Creative Matrix)
+    if (/^(素材象限|素材矩陣|四象限|素材診斷|吸血鬼|金牛|吸血鬼素材|金牛素材|matrix|creative\s*matrix)$/i.test(trimmed)) {
+      const matrixData = await MetaService.getCreativeMatrix(runtimeState.currentAdAccountId);
+      const matrixFlex = FlexBuilder.buildCreativeMatrixFlex(matrixData, runtimeState.currentAccountName);
+      await safeSendMessages(lineClient, replyToken, userId, [matrixFlex]);
       return;
     }
 

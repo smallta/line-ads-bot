@@ -40,8 +40,50 @@ export interface FatigueSummary {
   recommendation: string;
 }
 
+export interface WeeklyComparison {
+  current: OverviewMetrics;
+  prior: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    ctr: number;
+    conversions: number;
+    cpa: number;
+    roas: number;
+  };
+  delta: {
+    spendPct: number;
+    roasDiff: number;
+    conversionsDiff: number;
+    cpaPct: number;
+    ctrDiff: number;
+  };
+}
+
+export interface PatrolItem {
+  id: string;
+  name: string;
+  currency: string;
+  status: 'healthy' | 'warning' | 'critical';
+  spend7d: number;
+  disapprovedCount: number;
+  issuesCount: number;
+  reason?: string;
+}
+
+export interface CreativeMatrixItem {
+  id: string;
+  name: string;
+  spend: number;
+  ctr: number;
+  roas: number;
+  cpa: number;
+  conversions: number;
+  quadrant: 'winning' | 'vampire' | 'potential' | 'fatigued';
+}
+
 export class MetaService {
-  private static async request<T>(
+  public static async request<T>(
     endpoint: string,
     params: Record<string, string | number> = {}
   ): Promise<T> {
@@ -300,5 +342,279 @@ export class MetaService {
       currency: acc.currency,
       statusLabel: acc.account_status === 1 ? 'ACTIVE' : `STATUS_${acc.account_status}`,
     }));
+  }
+
+  /**
+   * 抓取週報環比數據 (WoW: 當前 7 天 vs 前一個 7 天)
+   */
+  public static async getWeeklyComparison(accountId: string): Promise<WeeklyComparison> {
+    const now = new Date();
+    const d14_end = new Date(now.getTime() - 8 * 86400000).toISOString().split('T')[0];
+    const d14_start = new Date(now.getTime() - 14 * 86400000).toISOString().split('T')[0];
+
+    const currentPromise = this.getAccountOverview(accountId, 'last_7d');
+    const priorPromise = this.request<{
+      data: Array<{
+        spend?: string;
+        impressions?: string;
+        clicks?: string;
+        ctr?: string;
+        actions?: Array<{ action_type: string; value: string }>;
+        action_values?: Array<{ action_type: string; value: string }>;
+        purchase_roas?: Array<{ action_type: string; value: string }>;
+      }>;
+    }>(`/${accountId}/insights`, {
+      time_range: JSON.stringify({ since: d14_start, until: d14_end }),
+      fields: 'spend,impressions,clicks,ctr,actions,action_values,purchase_roas',
+    });
+
+    const [cur, priorRes] = await Promise.all([currentPromise, priorPromise]);
+    const pInsight = priorRes.data?.[0] || {};
+    const pSpend = parseFloat(pInsight.spend || '0');
+    const pImpressions = parseInt(pInsight.impressions || '0', 10);
+    const pClicks = parseInt(pInsight.clicks || '0', 10);
+    const pCtr = parseFloat(pInsight.ctr || '0');
+
+    let pConversions = 0;
+    if (pInsight.actions) {
+      const act = pInsight.actions.find(
+        (a) =>
+          a.action_type === 'purchase' ||
+          a.action_type === 'omni_purchase' ||
+          a.action_type === 'lead' ||
+          a.action_type === 'complete_registration'
+      );
+      if (act) pConversions = parseFloat(act.value || '0');
+    }
+    const pCpa = pConversions > 0 ? pSpend / pConversions : 0;
+
+    let pRoas = 0;
+    if (pInsight.purchase_roas && pInsight.purchase_roas.length > 0) {
+      pRoas = parseFloat(pInsight.purchase_roas[0].value || '0');
+    } else if (pInsight.action_values && pSpend > 0) {
+      const actVal = pInsight.action_values.find(
+        (a) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+      );
+      if (actVal) pRoas = parseFloat(actVal.value || '0') / pSpend;
+    }
+
+    const spendDeltaPct = pSpend > 0 ? ((cur.spend - pSpend) / pSpend) * 100 : 0;
+    const roasDiff = cur.roas - pRoas;
+    const conversionsDiff = cur.conversions - pConversions;
+    const cpaPct = pCpa > 0 ? ((cur.cpa - pCpa) / pCpa) * 100 : 0;
+    const ctrDiff = cur.ctr - pCtr;
+
+    return {
+      current: cur,
+      prior: {
+        spend: pSpend,
+        impressions: pImpressions,
+        clicks: pClicks,
+        ctr: pCtr,
+        conversions: pConversions,
+        cpa: pCpa,
+        roas: pRoas,
+      },
+      delta: {
+        spendPct: spendDeltaPct,
+        roasDiff,
+        conversionsDiff,
+        cpaPct,
+        ctrDiff,
+      },
+    };
+  }
+
+  /**
+   * 16 帳號全域紅綠燈晨檢 (Cross-Account Sentinel Patrol)
+   */
+  public static async patrolAccounts(
+    accounts: Array<{ id: string; name: string; currency: string; shortName: string }>
+  ): Promise<PatrolItem[]> {
+    const results = await Promise.all(
+      accounts.map(async (acc): Promise<PatrolItem> => {
+        try {
+          const adsPromise = this.request<{
+            data: Array<{ id: string; name: string; effective_status: string }>;
+          }>(`/${acc.id}/ads`, {
+            effective_status: JSON.stringify(['DISAPPROVED', 'WITH_ISSUES']),
+            fields: 'id,name,effective_status',
+            limit: 20,
+          });
+
+          const insightPromise = this.request<{
+            data: Array<{ spend?: string }>;
+          }>(`/${acc.id}/insights`, {
+            date_preset: 'last_7d',
+            fields: 'spend',
+          });
+
+          const [adsRes, insightRes] = await Promise.all([adsPromise, insightPromise]);
+          const disapproved = (adsRes.data || []).filter((a) => a.effective_status === 'DISAPPROVED');
+          const withIssues = (adsRes.data || []).filter((a) => a.effective_status === 'WITH_ISSUES');
+          const spend7d = parseFloat(insightRes.data?.[0]?.spend || '0');
+
+          let status: 'healthy' | 'warning' | 'critical' = 'healthy';
+          let reason = '運作平穩正常';
+
+          if (disapproved.length > 0) {
+            status = 'critical';
+            reason = `${disapproved.length} 支廣告遭 Meta 官方拒登 (Policy 違規)`;
+          } else if (withIssues.length > 0) {
+            status = 'warning';
+            reason = `${withIssues.length} 支廣告存在過期受眾或設定錯誤 (WITH_ISSUES)`;
+          } else if (spend7d === 0) {
+            status = 'warning';
+            reason = '近 7 天花費為 $0 (專案休眠中)';
+          }
+
+          return {
+            id: acc.id,
+            name: acc.shortName || acc.name,
+            currency: acc.currency,
+            status,
+            spend7d,
+            disapprovedCount: disapproved.length,
+            issuesCount: withIssues.length,
+            reason,
+          };
+        } catch (e: any) {
+          return {
+            id: acc.id,
+            name: acc.shortName || acc.name,
+            currency: acc.currency,
+            status: 'warning' as const,
+            spend7d: 0,
+            disapprovedCount: 0,
+            issuesCount: 0,
+            reason: `存取受限 (${e.message || 'API 查詢略過'})`,
+          };
+        }
+      })
+    );
+
+    return results;
+  }
+
+  /**
+   * 吸血鬼 vs 金牛素材四象限分析 (Creative Matrix)
+   */
+  public static async getCreativeMatrix(accountId: string): Promise<{
+    items: CreativeMatrixItem[];
+    avgCtr: number;
+    avgRoas: number;
+  }> {
+    const res = await this.request<{
+      data: Array<{
+        id: string;
+        name: string;
+        insights?: {
+          data?: Array<{
+            spend?: string;
+            impressions?: string;
+            clicks?: string;
+            ctr?: string;
+            purchase_roas?: Array<{ value: string }>;
+            actions?: Array<{ action_type: string; value: string }>;
+            action_values?: Array<{ action_type: string; value: string }>;
+          }>;
+        };
+      }>;
+    }>(`/${accountId}/ads`, {
+      effective_status: JSON.stringify(['ACTIVE']),
+      fields: 'id,name,insights.date_preset(last_7d){spend,impressions,clicks,ctr,purchase_roas,actions,action_values}',
+      limit: 25,
+    });
+
+    const parsed: Array<{
+      id: string;
+      name: string;
+      spend: number;
+      ctr: number;
+      roas: number;
+      cpa: number;
+      conversions: number;
+    }> = [];
+
+    let totalSpend = 0;
+    let totalClicks = 0;
+    let totalImpressions = 0;
+    let totalRevenue = 0;
+
+    for (const ad of res.data || []) {
+      const insight = ad.insights?.data?.[0];
+      if (!insight) continue;
+
+      const spend = parseFloat(insight.spend || '0');
+      if (spend < 5) continue; // 過濾花費雜訊
+
+      const impressions = parseInt(insight.impressions || '0', 10);
+      const clicks = parseInt(insight.clicks || '0', 10);
+      const ctr = parseFloat(insight.ctr || '0');
+
+      let conversions = 0;
+      if (insight.actions) {
+        const act = insight.actions.find(
+          (a) =>
+            a.action_type === 'purchase' ||
+            a.action_type === 'omni_purchase' ||
+            a.action_type === 'lead' ||
+            a.action_type === 'complete_registration'
+        );
+        if (act) conversions = parseFloat(act.value || '0');
+      }
+      const cpa = conversions > 0 ? spend / conversions : 0;
+
+      let roas = 0;
+      if (insight.purchase_roas && insight.purchase_roas.length > 0) {
+        roas = parseFloat(insight.purchase_roas[0].value || '0');
+      } else if (insight.action_values && spend > 0) {
+        const actVal = insight.action_values.find(
+          (a) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
+        );
+        if (actVal) roas = parseFloat(actVal.value || '0') / spend;
+      }
+
+      totalSpend += spend;
+      totalClicks += clicks;
+      totalImpressions += impressions;
+      totalRevenue += spend * roas;
+
+      parsed.push({
+        id: ad.id,
+        name: ad.name,
+        spend,
+        ctr,
+        roas,
+        cpa,
+        conversions,
+      });
+    }
+
+    const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 2.0;
+    const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 1.2;
+
+    const items: CreativeMatrixItem[] = parsed.map((p) => {
+      let quadrant: 'winning' | 'vampire' | 'potential' | 'fatigued' = 'fatigued';
+      const isHighCtr = p.ctr >= avgCtr;
+      const isHighRoas = p.roas >= avgRoas;
+
+      if (isHighCtr && isHighRoas) {
+        quadrant = 'winning';
+      } else if (isHighCtr && !isHighRoas) {
+        quadrant = 'vampire';
+      } else if (!isHighCtr && isHighRoas) {
+        quadrant = 'potential';
+      } else {
+        quadrant = 'fatigued';
+      }
+
+      return {
+        ...p,
+        quadrant,
+      };
+    });
+
+    return { items, avgCtr, avgRoas };
   }
 }
