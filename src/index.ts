@@ -149,4 +149,22 @@ app.listen(config.port, () => {
   console.log(`🎯 預設監控帳號：【${runtimeState.currentAccountName}】(${runtimeState.currentAdAccountId})`);
   console.log(`⏰ 晨報自動推播：每日 09:00 (Asia/Taipei)`);
   console.log(`=======================================================`);
+
+  // 🌟 伺服器自主保活心跳（每 10 分鐘對外發送一次 public ping，重置 Render 15 分鐘休眠倒數）
+  const publicUrl = process.env.RENDER_EXTERNAL_URL || 'https://line-ads-bot-xrz5.onrender.com';
+  const sendHeartbeat = () => {
+    fetch(`${publicUrl}/ping`)
+      .then((res) => {
+        if (res.ok) {
+          console.log(`💓 [KeepAlive] 自主心跳成功 (${publicUrl}/ping)，維持伺服器常駐！`);
+        }
+      })
+      .catch((err) => {
+        console.warn('⚠️ [KeepAlive] 自主心跳連線失敗:', err.message);
+      });
+  };
+
+  // 啟動 30 秒後初次心跳，隨後每 10 分鐘定期心跳
+  setTimeout(sendHeartbeat, 30 * 1000);
+  setInterval(sendHeartbeat, 10 * 60 * 1000);
 });
