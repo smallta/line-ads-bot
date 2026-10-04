@@ -71,6 +71,18 @@ app.all('/cron/push-weekly', (req, res) => {
   });
 });
 
+// 一鍵建立與更新圖文選單端點
+app.all('/setup-rich-menu', async (req, res) => {
+  try {
+    const { setupRichMenu } = await import('./setupRichMenu.js');
+    const richMenuId = await setupRichMenu();
+    res.status(200).send(`OK: Rich Menu 已成功建立並啟用！ID: ${richMenuId}`);
+  } catch (err: any) {
+    console.error('設定 Rich Menu 失敗:', err);
+    res.status(500).send(`Error: ${err.message}`);
+  }
+});
+
 // LINE Webhook 端點 (需經過 LINE 簽章驗證中介軟體)
 app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
   const events: WebhookEvent[] = req.body.events;
