@@ -92,8 +92,24 @@ export async function handleTextMessage(
       lineClient.showLoadingAnimation({ chatId: userId, loadingSeconds: 25 }).catch(() => {});
     }
 
-    // 指令 1: 看成效 / 大盤
-    if (/^看成效|^大盤|^成效|^report|^今日成效|^本週成效/i.test(trimmed)) {
+    // 指令 1A: 今天成效 / 今日即時 / today
+    if (/^(今天|今日|今天成效|今日成效|今天的成效|今天的數據|今日數據|today)$/i.test(trimmed)) {
+      const metrics = await MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'today');
+      const flex = FlexBuilder.buildOverviewFlex(metrics);
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    // 指令 1B: 昨天成效 / 昨日結算 / yesterday
+    if (/^(昨天|昨日|昨天成效|昨日成效|昨天的成效|昨天的數據|昨日數據|yesterday)$/i.test(trimmed)) {
+      const metrics = await MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'yesterday');
+      const flex = FlexBuilder.buildOverviewFlex(metrics);
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    // 指令 1C: 看成效 / 大盤 / 本週 / 近7天 (預設近 7 天)
+    if (/^看成效|^大盤|^成效|^本週成效|^本週|^近7天|^近七天|^report/i.test(trimmed)) {
       const metrics = await MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'last_7d');
       const flex = FlexBuilder.buildOverviewFlex(metrics);
       await safeSendMessages(lineClient, replyToken, userId, [flex]);

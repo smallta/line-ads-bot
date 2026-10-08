@@ -10,6 +10,17 @@ export class FlexBuilder {
     const isLeadAccount = !isMessagingAccount && (metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0));
     const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
 
+    const dateLabelMap: Record<string, string> = {
+      today: '今日即時數據',
+      yesterday: '昨日完整結算',
+      last_3d: '近 3 天數據',
+      last_7d: '近 7 天大盤',
+      last_14d: '近 14 天數據',
+      last_30d: '近 30 天數據',
+      this_month: '本月至今數據',
+    };
+    const dateDisplay = dateLabelMap[metrics.datePreset] || metrics.datePreset;
+
     const bubble: any = {
       type: 'bubble',
       size: 'mega',
@@ -32,7 +43,7 @@ export class FlexBuilder {
               },
               {
                 type: 'text',
-                text: metrics.datePreset,
+                text: dateDisplay,
                 size: 'xs',
                 color: '#94A3B8',
                 align: 'end',
@@ -327,10 +338,10 @@ export class FlexBuilder {
     };
 
     const altText = isMessagingAccount
-      ? `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，發起 ${metrics.conversions} 則訊息 (單則 $${metrics.cpa.toFixed(0)})`
+      ? `【${metrics.accountName}】${dateDisplay}：花費 $${metrics.spend.toLocaleString()}，發起 ${metrics.conversions} 則訊息 (單則 $${metrics.cpa.toFixed(0)})`
       : isLeadAccount
-      ? `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，累積 ${metrics.conversions} 筆轉換 (CPA $${metrics.cpa.toFixed(0)})`
-      : `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，ROAS ${metrics.roas.toFixed(2)}x (CPA $${metrics.cpa.toFixed(0)})`;
+      ? `【${metrics.accountName}】${dateDisplay}：花費 $${metrics.spend.toLocaleString()}，累積 ${metrics.conversions} 筆轉換 (CPA $${metrics.cpa.toFixed(0)})`
+      : `【${metrics.accountName}】${dateDisplay}：花費 $${metrics.spend.toLocaleString()}，ROAS ${metrics.roas.toFixed(2)}x (CPA $${metrics.cpa.toFixed(0)})`;
 
     return {
       type: 'flex',
