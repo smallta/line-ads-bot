@@ -26,6 +26,9 @@ export interface CampaignSummary {
   spend: number;
   ctr: number;
   roas: number;
+  conversions: number;
+  cpa: number;
+  primaryMetric: 'roas' | 'cpa';
 }
 
 export interface FatigueSummary {
@@ -111,6 +114,69 @@ export class MetaService {
     return data as T;
   }
 
+  /**
+   * 智慧萃取核心轉換數 (包含電商購買、名單留下、會員註冊、非營利捐款、預約等)
+   */
+  public static extractConversions(actions?: Array<{ action_type: string; value: string }>): number {
+    if (!actions || actions.length === 0) return 0;
+
+    // 1. 電商購買 / 實體門市下單
+    const purchaseAct = actions.find(
+      (a) =>
+        a.action_type === 'purchase' ||
+        a.action_type === 'omni_purchase' ||
+        a.action_type === 'web_in_store_purchase'
+    );
+    if (purchaseAct) return parseFloat(purchaseAct.value || '0');
+
+    // 2. 名單收集 / 預約諮詢 / 註冊 / 捐款
+    const leadAct = actions.find(
+      (a) =>
+        a.action_type === 'lead' ||
+        a.action_type === 'onsite_conversion.lead_grouped' ||
+        a.action_type === 'complete_registration' ||
+        a.action_type === 'omni_complete_registration' ||
+        a.action_type === 'donate' ||
+        a.action_type === 'contact' ||
+        a.action_type === 'schedule' ||
+        a.action_type === 'submit_application' ||
+        a.action_type === 'subscribe'
+    );
+    if (leadAct) return parseFloat(leadAct.value || '0');
+
+    return 0;
+  }
+
+  /**
+   * 智慧萃取購買營收與計算 ROAS
+   */
+  public static extractRevenue(
+    actionValues?: Array<{ action_type: string; value: string }>,
+    purchaseRoas?: Array<{ action_type?: string; value: string }>,
+    spend = 0
+  ): { roas: number; revenue: number } {
+    let roas = 0;
+    let revenue = 0;
+
+    if (purchaseRoas && purchaseRoas.length > 0) {
+      roas = parseFloat(purchaseRoas[0].value || '0');
+      revenue = roas * spend;
+    } else if (actionValues && actionValues.length > 0) {
+      const actVal = actionValues.find(
+        (a) =>
+          a.action_type === 'purchase' ||
+          a.action_type === 'omni_purchase' ||
+          a.action_type === 'web_in_store_purchase'
+      );
+      if (actVal) {
+        revenue = parseFloat(actVal.value || '0');
+        roas = spend > 0 ? revenue / spend : 0;
+      }
+    }
+
+    return { roas, revenue };
+  }
+
   public static async getAccountOverview(
     accountId: string,
     datePreset = 'last_7d'
@@ -152,29 +218,9 @@ export class MetaService {
     const cpm = parseFloat(insight.cpm || '0');
     const frequency = parseFloat(insight.frequency || '0');
 
-    let conversions = 0;
-    if (insight.actions) {
-      const act = insight.actions.find(
-        (a) =>
-          a.action_type === 'purchase' ||
-          a.action_type === 'omni_purchase' ||
-          a.action_type === 'lead' ||
-          a.action_type === 'complete_registration'
-      );
-      if (act) conversions = parseFloat(act.value || '0');
-    }
-
+    const conversions = this.extractConversions(insight.actions);
     const cpa = conversions > 0 ? spend / conversions : 0;
-
-    let roas = 0;
-    if (insight.purchase_roas && insight.purchase_roas.length > 0) {
-      roas = parseFloat(insight.purchase_roas[0].value || '0');
-    } else if (insight.action_values && spend > 0) {
-      const actVal = insight.action_values.find(
-        (a) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
-      );
-      if (actVal) roas = parseFloat(actVal.value || '0') / spend;
-    }
+    const { roas } = this.extractRevenue(insight.action_values, insight.purchase_roas, spend);
 
     return {
       accountName: accountInfo.name,
@@ -212,6 +258,8 @@ export class MetaService {
             spend?: string;
             ctr?: string;
             purchase_roas?: Array<{ value: string }>;
+            actions?: Array<{ action_type: string; value: string }>;
+            action_values?: Array<{ action_type: string; value: string }>;
           }>;
         };
       }>;
@@ -220,17 +268,16 @@ export class MetaService {
     const res = await this.request<CampRes>(`/${accountId}/campaigns`, {
       limit,
       effective_status: JSON.stringify(['ACTIVE']),
-      fields: `id,name,effective_status,daily_budget,lifetime_budget,insights.date_preset(${datePreset}){spend,ctr,purchase_roas}`,
+      fields: `id,name,effective_status,daily_budget,lifetime_budget,insights.date_preset(${datePreset}){spend,ctr,purchase_roas,actions,action_values}`,
     });
 
     return (res.data || []).map((c) => {
       const insight = c.insights?.data?.[0];
       const spend = insight ? parseFloat(insight.spend || '0') : 0;
       const ctr = insight ? parseFloat(insight.ctr || '0') : 0;
-      const roas =
-        insight?.purchase_roas && insight.purchase_roas.length > 0
-          ? parseFloat(insight.purchase_roas[0].value || '0')
-          : 0;
+      const conversions = this.extractConversions(insight?.actions);
+      const cpa = conversions > 0 ? spend / conversions : 0;
+      const { roas } = this.extractRevenue(insight?.action_values, insight?.purchase_roas, spend);
 
       let budgetDesc = 'ABO';
       if (c.daily_budget) {
@@ -245,6 +292,9 @@ export class MetaService {
         spend,
         ctr,
         roas,
+        conversions,
+        cpa,
+        primaryMetric: roas > 0 ? 'roas' : 'cpa',
       };
     });
   }
@@ -296,11 +346,11 @@ export class MetaService {
       const ctrR = parseFloat(r.ctr || '0');
       const ctrB = b ? parseFloat(b.ctr || '0') : ctrR;
 
-      const convR = r.actions?.find((a) => a.action_type === 'purchase')?.value || '0';
-      const convB = b?.actions?.find((a) => a.action_type === 'purchase')?.value || '0';
+      const convR = this.extractConversions(r.actions);
+      const convB = this.extractConversions(b?.actions);
 
-      const cpaR = parseFloat(convR) > 0 ? spendR / parseFloat(convR) : spendR;
-      const cpaB = parseFloat(convB) > 0 ? spendB / parseFloat(convB) : spendB;
+      const cpaR = convR > 0 ? spendR / convR : spendR;
+      const cpaB = convB > 0 ? spendB / convB : spendB;
 
       const freqTrigger = freqR > 4.0;
       const ctrDropPct = ctrB > 0 ? ((ctrB - ctrR) / ctrB) * 100 : 0;
@@ -375,28 +425,9 @@ export class MetaService {
     const pClicks = parseInt(pInsight.clicks || '0', 10);
     const pCtr = parseFloat(pInsight.ctr || '0');
 
-    let pConversions = 0;
-    if (pInsight.actions) {
-      const act = pInsight.actions.find(
-        (a) =>
-          a.action_type === 'purchase' ||
-          a.action_type === 'omni_purchase' ||
-          a.action_type === 'lead' ||
-          a.action_type === 'complete_registration'
-      );
-      if (act) pConversions = parseFloat(act.value || '0');
-    }
+    const pConversions = this.extractConversions(pInsight.actions);
     const pCpa = pConversions > 0 ? pSpend / pConversions : 0;
-
-    let pRoas = 0;
-    if (pInsight.purchase_roas && pInsight.purchase_roas.length > 0) {
-      pRoas = parseFloat(pInsight.purchase_roas[0].value || '0');
-    } else if (pInsight.action_values && pSpend > 0) {
-      const actVal = pInsight.action_values.find(
-        (a) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
-      );
-      if (actVal) pRoas = parseFloat(actVal.value || '0') / pSpend;
-    }
+    const { roas: pRoas } = this.extractRevenue(pInsight.action_values, pInsight.purchase_roas, pSpend);
 
     const spendDeltaPct = pSpend > 0 ? ((cur.spend - pSpend) / pSpend) * 100 : 0;
     const roasDiff = cur.roas - pRoas;
@@ -497,12 +528,15 @@ export class MetaService {
   }
 
   /**
-   * 吸血鬼 vs 金牛素材四象限分析 (Creative Matrix)
+   * 吸血鬼 vs 金牛素材四象限分析 (Creative Matrix，支援 ROAS 電商模式與 CPA 名單模式雙軌制)
    */
   public static async getCreativeMatrix(accountId: string): Promise<{
     items: CreativeMatrixItem[];
     avgCtr: number;
     avgRoas: number;
+    avgCpa: number;
+    totalConversions: number;
+    primaryMetric: 'roas' | 'cpa';
   }> {
     const res = await this.request<{
       data: Array<{
@@ -540,6 +574,7 @@ export class MetaService {
     let totalClicks = 0;
     let totalImpressions = 0;
     let totalRevenue = 0;
+    let totalConversions = 0;
 
     for (const ad of res.data || []) {
       const insight = ad.insights?.data?.[0];
@@ -552,33 +587,15 @@ export class MetaService {
       const clicks = parseInt(insight.clicks || '0', 10);
       const ctr = parseFloat(insight.ctr || '0');
 
-      let conversions = 0;
-      if (insight.actions) {
-        const act = insight.actions.find(
-          (a) =>
-            a.action_type === 'purchase' ||
-            a.action_type === 'omni_purchase' ||
-            a.action_type === 'lead' ||
-            a.action_type === 'complete_registration'
-        );
-        if (act) conversions = parseFloat(act.value || '0');
-      }
+      const conversions = this.extractConversions(insight.actions);
       const cpa = conversions > 0 ? spend / conversions : 0;
-
-      let roas = 0;
-      if (insight.purchase_roas && insight.purchase_roas.length > 0) {
-        roas = parseFloat(insight.purchase_roas[0].value || '0');
-      } else if (insight.action_values && spend > 0) {
-        const actVal = insight.action_values.find(
-          (a) => a.action_type === 'purchase' || a.action_type === 'omni_purchase'
-        );
-        if (actVal) roas = parseFloat(actVal.value || '0') / spend;
-      }
+      const { roas, revenue } = this.extractRevenue(insight.action_values, insight.purchase_roas, spend);
 
       totalSpend += spend;
       totalClicks += clicks;
       totalImpressions += impressions;
-      totalRevenue += spend * roas;
+      totalRevenue += revenue;
+      totalConversions += conversions;
 
       parsed.push({
         id: ad.id,
@@ -592,21 +609,43 @@ export class MetaService {
     }
 
     const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 2.0;
-    const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 1.2;
+    const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+    const avgCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
+
+    // 判斷該帳號/素材群是名單獲客型 (CPA Mode) 還是電商轉單型 (ROAS Mode)
+    const isCpaMode = avgRoas <= 0.05 && (totalConversions > 0 || totalSpend > 0);
+    const primaryMetric: 'roas' | 'cpa' = isCpaMode ? 'cpa' : 'roas';
 
     const items: CreativeMatrixItem[] = parsed.map((p) => {
       let quadrant: 'winning' | 'vampire' | 'potential' | 'fatigued' = 'fatigued';
       const isHighCtr = p.ctr >= avgCtr;
-      const isHighRoas = p.roas >= avgRoas;
 
-      if (isHighCtr && isHighRoas) {
-        quadrant = 'winning';
-      } else if (isHighCtr && !isHighRoas) {
-        quadrant = 'vampire';
-      } else if (!isHighCtr && isHighRoas) {
-        quadrant = 'potential';
+      if (isCpaMode) {
+        // 名單獲客模式：CPA 越低越好 (獲客成本低於大盤平均且有轉換)
+        const isGoodCpa = p.conversions > 0 && (avgCpa === 0 || p.cpa <= avgCpa);
+
+        if (isHighCtr && isGoodCpa) {
+          quadrant = 'winning';    // 🏆 金牛名單素材 (高點擊 + 低獲客成本)
+        } else if (isHighCtr && !isGoodCpa) {
+          quadrant = 'vampire';    // 🧛 吸血鬼素材 (高點擊 + 高獲客成本/零轉換)
+        } else if (!isHighCtr && isGoodCpa) {
+          quadrant = 'potential';  // 💎 潛力金礦 (低點擊 + 低獲客成本)
+        } else {
+          quadrant = 'fatigued';   // 🥀 疲勞淘汰 (低點擊 + 高獲客成本/零轉換)
+        }
       } else {
-        quadrant = 'fatigued';
+        // 電商營收模式：ROAS 越高越好
+        const isHighRoas = p.roas >= avgRoas;
+
+        if (isHighCtr && isHighRoas) {
+          quadrant = 'winning';    // 🏆 金牛素材 (高點擊 + 高 ROAS)
+        } else if (isHighCtr && !isHighRoas) {
+          quadrant = 'vampire';    // 🧛 吸血鬼素材 (高點擊 + 低 ROAS)
+        } else if (!isHighCtr && isHighRoas) {
+          quadrant = 'potential';  // 💎 潛力金礦 (低點擊 + 高 ROAS)
+        } else {
+          quadrant = 'fatigued';   // 🥀 疲勞淘汰 (低點擊 + 低 ROAS)
+        }
       }
 
       return {
@@ -615,6 +654,6 @@ export class MetaService {
       };
     });
 
-    return { items, avgCtr, avgRoas };
+    return { items, avgCtr, avgRoas, avgCpa, totalConversions, primaryMetric };
   }
 }

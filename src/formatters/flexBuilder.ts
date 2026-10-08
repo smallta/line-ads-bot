@@ -6,6 +6,7 @@ export class FlexBuilder {
    * 1. 建立大盤成效儀表板 Flex Message
    */
   public static buildOverviewFlex(metrics: OverviewMetrics): messagingApi.FlexMessage {
+    const isLeadAccount = metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0);
     const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
 
     const bubble: any = {
@@ -78,50 +79,94 @@ export class FlexBuilder {
               },
             ],
           },
-          // 核心 4 格指標 (2x2 Grid)
-          {
-            type: 'box',
-            layout: 'horizontal',
-            spacing: 'sm',
-            contents: [
-              {
+          // 核心 4 格指標 (2x2 Grid) - 根據名單模式或電商模式自動排列核心指標
+          isLeadAccount
+            ? {
                 type: 'box',
-                layout: 'vertical',
-                backgroundColor: '#F1F5F9',
-                cornerRadius: '8px',
-                paddingAll: '10px',
-                flex: 1,
+                layout: 'horizontal',
+                spacing: 'sm',
                 contents: [
-                  { type: 'text', text: '投資報酬率 ROAS', size: 'xxs', color: '#64748B' },
                   {
-                    type: 'text',
-                    text: metrics.roas > 0 ? `${metrics.roas.toFixed(2)}x` : '—',
-                    size: 'lg',
-                    weight: 'bold',
-                    color: roasColor,
+                    type: 'box',
+                    layout: 'vertical',
+                    backgroundColor: '#F1F5F9',
+                    cornerRadius: '8px',
+                    paddingAll: '10px',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '獲客成本 CPA', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: metrics.cpa > 0 ? `$${metrics.cpa.toFixed(1)}` : '—',
+                        size: 'lg',
+                        weight: 'bold',
+                        color: metrics.cpa > 0 ? '#059669' : '#0F172A',
+                      },
+                    ],
+                  },
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    backgroundColor: '#F1F5F9',
+                    cornerRadius: '8px',
+                    paddingAll: '10px',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '核心轉換數', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `${metrics.conversions} 筆`,
+                        size: 'lg',
+                        weight: 'bold',
+                        color: '#2563EB',
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {
+                type: 'box',
+                layout: 'horizontal',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    backgroundColor: '#F1F5F9',
+                    cornerRadius: '8px',
+                    paddingAll: '10px',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '投資報酬率 ROAS', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: metrics.roas > 0 ? `${metrics.roas.toFixed(2)}x` : '—',
+                        size: 'lg',
+                        weight: 'bold',
+                        color: roasColor,
+                      },
+                    ],
+                  },
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    backgroundColor: '#F1F5F9',
+                    cornerRadius: '8px',
+                    paddingAll: '10px',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '獲客成本 CPA', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: metrics.cpa > 0 ? `$${metrics.cpa.toFixed(1)}` : '—',
+                        size: 'lg',
+                        weight: 'bold',
+                        color: '#0F172A',
+                      },
+                    ],
                   },
                 ],
               },
-              {
-                type: 'box',
-                layout: 'vertical',
-                backgroundColor: '#F1F5F9',
-                cornerRadius: '8px',
-                paddingAll: '10px',
-                flex: 1,
-                contents: [
-                  { type: 'text', text: '獲客成本 CPA', size: 'xxs', color: '#64748B' },
-                  {
-                    type: 'text',
-                    text: metrics.cpa > 0 ? `$${metrics.cpa.toFixed(1)}` : '—',
-                    size: 'lg',
-                    weight: 'bold',
-                    color: '#0F172A',
-                  },
-                ],
-              },
-            ],
-          },
           {
             type: 'box',
             layout: 'horizontal',
@@ -152,16 +197,27 @@ export class FlexBuilder {
                 cornerRadius: '8px',
                 paddingAll: '10px',
                 flex: 1,
-                contents: [
-                  { type: 'text', text: '核心轉換數', size: 'xxs', color: '#64748B' },
-                  {
-                    type: 'text',
-                    text: `${metrics.conversions} 筆`,
-                    size: 'lg',
-                    weight: 'bold',
-                    color: '#059669',
-                  },
-                ],
+                contents: isLeadAccount
+                  ? [
+                      { type: 'text', text: '平均千次 CPM', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `$${metrics.cpm.toFixed(1)}`,
+                        size: 'lg',
+                        weight: 'bold',
+                        color: '#0F172A',
+                      },
+                    ]
+                  : [
+                      { type: 'text', text: '核心轉換數', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `${metrics.conversions} 筆`,
+                        size: 'lg',
+                        weight: 'bold',
+                        color: '#059669',
+                      },
+                    ],
               },
             ],
           },
@@ -225,9 +281,13 @@ export class FlexBuilder {
       },
     };
 
+    const altText = isLeadAccount
+      ? `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，累積 ${metrics.conversions} 筆轉換 (CPA $${metrics.cpa.toFixed(0)})`
+      : `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，ROAS ${metrics.roas.toFixed(2)}x (CPA $${metrics.cpa.toFixed(0)})`;
+
     return {
       type: 'flex',
-      altText: `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，ROAS ${metrics.roas.toFixed(2)}x`,
+      altText,
       contents: bubble as any,
     } as any as messagingApi.FlexMessage;
   }
@@ -365,7 +425,17 @@ export class FlexBuilder {
         spacing: 'sm',
         paddingAll: '12px',
         contents: campaigns.slice(0, 6).map((c, i) => {
-          const isWinner = c.roas >= 2.0;
+          const hasRoas = c.roas > 0;
+          const isWinner = c.roas >= 2.0 || (c.roas === 0 && c.conversions > 0);
+          const badgeText = hasRoas
+            ? `ROAS ${c.roas.toFixed(2)}x`
+            : c.conversions > 0
+            ? `CPA $${c.cpa.toFixed(0)}`
+            : '無轉換';
+          const badgeColor = hasRoas
+            ? (c.roas >= 2.0 ? '#059669' : c.roas >= 1.0 ? '#2563EB' : '#DC2626')
+            : (c.conversions > 0 ? '#059669' : '#64748B');
+
           return {
             type: 'box',
             layout: 'vertical',
@@ -390,12 +460,13 @@ export class FlexBuilder {
                   },
                   {
                     type: 'text',
-                    text: c.roas > 0 ? `${c.roas.toFixed(2)}x` : '—',
-                    size: 'sm',
+                    text: badgeText,
+                    size: 'xs',
                     weight: 'bold',
-                    color: isWinner ? '#059669' : '#64748B',
+                    color: badgeColor,
                     align: 'end',
-                    flex: 1,
+                    flex: 2,
+                    wrap: true,
                   },
                 ],
               },
@@ -404,9 +475,28 @@ export class FlexBuilder {
                 layout: 'horizontal',
                 margin: 'xs',
                 contents: [
-                  { type: 'text', text: c.budgetDesc, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
-                  { type: 'text', text: `花費: $${c.spend.toFixed(0)}`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
-                  { type: 'text', text: `CTR: ${c.ctr.toFixed(1)}%`, size: 'xxs', color: '#64748B', align: 'end', flex: 2, wrap: true },
+                  { type: 'text', text: `花費: $${c.spend.toLocaleString()}`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
+                  { type: 'text', text: `CTR: ${c.ctr.toFixed(2)}%`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
+                  {
+                    type: 'text',
+                    text: hasRoas
+                      ? (c.conversions > 0 ? `CPA $${c.cpa.toFixed(0)} (${c.conversions}筆)` : '0筆轉換')
+                      : (c.conversions > 0 ? `${c.conversions} 筆轉換` : '0筆轉換'),
+                    size: 'xxs',
+                    color: '#0F172A',
+                    weight: 'bold',
+                    align: 'end',
+                    flex: 3,
+                    wrap: true,
+                  },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                margin: 'xs',
+                contents: [
+                  { type: 'text', text: `預算模式: ${c.budgetDesc}`, size: 'xxs', color: '#94A3B8', flex: 1, wrap: true },
                 ],
               },
             ],
@@ -623,6 +713,7 @@ export class FlexBuilder {
     datePresetLabel = '過去 7 天全盤數據',
     delta?: WeeklyComparison['delta']
   ): messagingApi.FlexMessage {
+    const isLeadAccount = metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0);
     const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
     const topCampaigns = campaigns.slice(0, 3);
     const hasFatigue = fatigued.length > 0;
@@ -647,26 +738,50 @@ export class FlexBuilder {
     let adviceColor = '#1E293B';
     let adviceBg = '#F8FAFC';
 
-    if (metrics.roas >= 2.0 && (!delta || delta.roasDiff >= 0)) {
-      adviceTitle = '🚀 資本配置：攻守兼備 (建議加碼)';
-      adviceText = '大盤 ROAS 穩健成長且突破 2.0x！建議將預算往 Top 1 核心活動小幅加碼 10~15% 擴大戰果。';
-      adviceColor = '#065F46';
-      adviceBg = '#ECFDF5';
-    } else if (metrics.roas >= 2.0 && delta && delta.roasDiff < 0) {
-      adviceTitle = '⚠️ 資本配置：防守觀望 (維持規模)';
-      adviceText = `ROAS 雖仍在 ${metrics.roas.toFixed(2)}x 獲利水位，但較上週衰退，建議維持目前預算規模並檢驗受眾飽和度。`;
-      adviceColor = '#92400E';
-      adviceBg = '#FFFBEB';
-    } else if (metrics.roas < 1.0) {
-      adviceTitle = '🛑 資本配置：止血防禦 (收攏預算)';
-      adviceText = '整體投報率低於 1.0x 損平線，建議關閉末端低效素材，將預算回防至 ROAS 最高之基本盤活動。';
-      adviceColor = '#991B1B';
-      adviceBg = '#FEF2F2';
+    if (isLeadAccount) {
+      if (metrics.conversions > 0 && delta && delta.cpaPct <= -10) {
+        adviceTitle = '🚀 資本配置：攻守兼備 (建議加碼)';
+        adviceText = `平均獲客 CPA 較上週大幅降低 ${Math.abs(delta.cpaPct).toFixed(1)}%（現為 $${metrics.cpa.toFixed(0)}），名單獲取效率顯著提升！建議向 Top 1 核心活動加碼 10~15% 擴大進單。`;
+        adviceColor = '#065F46';
+        adviceBg = '#ECFDF5';
+      } else if (metrics.conversions > 0 && delta && delta.cpaPct > 20) {
+        adviceTitle = '🛑 資本配置：防禦排查 (成本飆升)';
+        adviceText = `獲客 CPA 較上週飆升 ${delta.cpaPct.toFixed(1)}%（現為 $${metrics.cpa.toFixed(0)}），獲客成本過高。建議輸入「素材象限」排查高點低轉吸血鬼素材，收攏預算。`;
+        adviceColor = '#991B1B';
+        adviceBg = '#FEF2F2';
+      } else if (metrics.spend > 0 && metrics.conversions === 0) {
+        adviceTitle = '🛑 資本配置：止血防禦 (零轉換警報)';
+        adviceText = '本週已累積花費但尚無核心名單轉換，請立即排查落地頁跳轉或表單像素事件！';
+        adviceColor = '#991B1B';
+        adviceBg = '#FEF2F2';
+      } else {
+        adviceTitle = '⚖️ 資本配置：穩定獲客 (維持節奏)';
+        adviceText = `平均 CPA 落在 $${metrics.cpa.toFixed(0)}，本週轉換 ${metrics.conversions} 筆，節奏平穩。建議維持現有日預算投放。`;
+        adviceColor = '#1E40AF';
+        adviceBg = '#EFF6FF';
+      }
     } else {
-      adviceTitle = '⚖️ 資本配置：微調優化 (汰換素材)';
-      adviceText = '成效維持在損平邊界，建議輸入「素材象限」排查高點低轉之吸血鬼素材，釋放無效預算。';
-      adviceColor = '#1E40AF';
-      adviceBg = '#EFF6FF';
+      if (metrics.roas >= 2.0 && (!delta || delta.roasDiff >= 0)) {
+        adviceTitle = '🚀 資本配置：攻守兼備 (建議加碼)';
+        adviceText = '大盤 ROAS 穩健成長且突破 2.0x！建議將預算往 Top 1 核心活動小幅加碼 10~15% 擴大戰果。';
+        adviceColor = '#065F46';
+        adviceBg = '#ECFDF5';
+      } else if (metrics.roas >= 2.0 && delta && delta.roasDiff < 0) {
+        adviceTitle = '⚠️ 資本配置：防守觀望 (維持規模)';
+        adviceText = `ROAS 雖仍在 ${metrics.roas.toFixed(2)}x 獲利水位，但較上週衰退，建議維持目前預算規模並檢驗受眾飽和度。`;
+        adviceColor = '#92400E';
+        adviceBg = '#FFFBEB';
+      } else if (metrics.roas < 1.0) {
+        adviceTitle = '🛑 資本配置：止血防禦 (收攏預算)';
+        adviceText = '整體投報率低於 1.0x 損平線，建議關閉末端低效素材，將預算回防至 ROAS 最高之基本盤活動。';
+        adviceColor = '#991B1B';
+        adviceBg = '#FEF2F2';
+      } else {
+        adviceTitle = '⚖️ 資本配置：微調優化 (汰換素材)';
+        adviceText = '成效維持在損平邊界，建議輸入「素材象限」排查高點低轉之吸血鬼素材，釋放無效預算。';
+        adviceColor = '#1E40AF';
+        adviceBg = '#EFF6FF';
+      }
     }
 
     const bubble: any = {
@@ -724,7 +839,7 @@ export class FlexBuilder {
         spacing: 'sm',
         paddingAll: '14px',
         contents: [
-          // 總預算與 ROAS 核心展示區 (含 WoW 環比)
+          // 總預算與核心展示區 (含 WoW 環比) - 自動判斷大盤 ROAS 或平均 CPA
           {
             type: 'box',
             layout: 'horizontal',
@@ -760,35 +875,65 @@ export class FlexBuilder {
                     : []),
                 ],
               },
-              {
-                type: 'box',
-                layout: 'vertical',
-                flex: 2,
-                alignItems: 'flex-end',
-                contents: [
-                  { type: 'text', text: '大盤 ROAS', size: 'xxs', color: '#64748B' },
-                  {
-                    type: 'text',
-                    text: `${metrics.roas.toFixed(2)}x`,
-                    size: 'xl',
-                    weight: 'bold',
-                    color: roasColor,
-                    margin: 'xs',
+              isLeadAccount
+                ? {
+                    type: 'box',
+                    layout: 'vertical',
+                    flex: 2,
+                    alignItems: 'flex-end',
+                    contents: [
+                      { type: 'text', text: '平均 CPA', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: metrics.cpa > 0 ? `$${metrics.cpa.toFixed(0)}` : '—',
+                        size: 'xl',
+                        weight: 'bold',
+                        color: metrics.cpa > 0 ? '#059669' : '#0F172A',
+                        margin: 'xs',
+                      },
+                      ...(cpaWoW
+                        ? [
+                            {
+                              type: 'text',
+                              text: cpaWoW,
+                              size: 'xxs',
+                              color: delta!.cpaPct <= 0 ? '#059669' : '#DC2626',
+                              weight: 'bold',
+                              margin: 'xs',
+                            },
+                          ]
+                        : []),
+                    ],
+                  }
+                : {
+                    type: 'box',
+                    layout: 'vertical',
+                    flex: 2,
+                    alignItems: 'flex-end',
+                    contents: [
+                      { type: 'text', text: '大盤 ROAS', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `${metrics.roas.toFixed(2)}x`,
+                        size: 'xl',
+                        weight: 'bold',
+                        color: roasColor,
+                        margin: 'xs',
+                      },
+                      ...(roasWoW
+                        ? [
+                            {
+                              type: 'text',
+                              text: roasWoW,
+                              size: 'xxs',
+                              color: delta!.roasDiff >= 0 ? '#059669' : '#DC2626',
+                              weight: 'bold',
+                              margin: 'xs',
+                            },
+                          ]
+                        : []),
+                    ],
                   },
-                  ...(roasWoW
-                    ? [
-                        {
-                          type: 'text',
-                          text: roasWoW,
-                          size: 'xxs',
-                          color: delta!.roasDiff >= 0 ? '#059669' : '#DC2626',
-                          weight: 'bold',
-                          margin: 'xs',
-                        },
-                      ]
-                    : []),
-                ],
-              },
             ],
           },
           // 4 大次要關鍵指標 (2x2 Grid)
@@ -867,7 +1012,7 @@ export class FlexBuilder {
               },
             ],
           },
-          // 🏆 獲利 Top 3 活動小榜
+          // 🏆 獲利 Top 3 活動小榜 (兼顧 ROAS 與 CPA)
           {
             type: 'box',
             layout: 'vertical',
@@ -881,51 +1026,75 @@ export class FlexBuilder {
                 color: '#334155',
                 margin: 'xs',
               },
-              ...topCampaigns.map((c, i) => ({
-                type: 'box',
-                layout: 'vertical',
-                paddingAll: '8px',
-                backgroundColor: i === 0 ? '#EFF6FF' : '#F8FAFC',
-                cornerRadius: '6px',
-                margin: 'xs',
-                contents: [
-                  {
-                    type: 'box',
-                    layout: 'horizontal',
-                    alignItems: 'center',
-                    contents: [
-                      {
-                        type: 'text',
-                        text: `${i + 1}. ${c.name}`,
-                        size: 'xs',
-                        weight: i === 0 ? 'bold' : 'regular',
-                        color: '#1E293B',
-                        flex: 4,
-                        wrap: true,
-                      },
-                      {
-                        type: 'text',
-                        text: `ROAS ${c.roas.toFixed(2)}x`,
-                        size: 'xs',
-                        weight: 'bold',
-                        color: c.roas >= 2.0 ? '#059669' : '#2563EB',
-                        flex: 2,
-                        align: 'end',
-                        wrap: true,
-                      },
-                    ],
-                  },
-                  {
-                    type: 'box',
-                    layout: 'horizontal',
-                    margin: 'xs',
-                    contents: [
-                      { type: 'text', text: `花費: $${c.spend.toLocaleString()}`, size: 'xxs', color: '#64748B', flex: 1, wrap: true },
-                      { type: 'text', text: `CTR: ${c.ctr.toFixed(2)}%`, size: 'xxs', color: '#64748B', align: 'end', flex: 1, wrap: true },
-                    ],
-                  },
-                ],
-              })),
+              ...topCampaigns.map((c, i) => {
+                const hasRoas = c.roas > 0;
+                const badgeText = hasRoas
+                  ? `ROAS ${c.roas.toFixed(2)}x`
+                  : c.conversions > 0
+                  ? `CPA $${c.cpa.toFixed(0)}`
+                  : '無轉換';
+                const badgeColor = hasRoas
+                  ? (c.roas >= 2.0 ? '#059669' : '#2563EB')
+                  : (c.conversions > 0 ? '#059669' : '#64748B');
+
+                return {
+                  type: 'box',
+                  layout: 'vertical',
+                  paddingAll: '8px',
+                  backgroundColor: i === 0 ? '#EFF6FF' : '#F8FAFC',
+                  cornerRadius: '6px',
+                  margin: 'xs',
+                  contents: [
+                    {
+                      type: 'box',
+                      layout: 'horizontal',
+                      alignItems: 'center',
+                      contents: [
+                        {
+                          type: 'text',
+                          text: `${i + 1}. ${c.name}`,
+                          size: 'xs',
+                          weight: i === 0 ? 'bold' : 'regular',
+                          color: '#1E293B',
+                          flex: 4,
+                          wrap: true,
+                        },
+                        {
+                          type: 'text',
+                          text: badgeText,
+                          size: 'xs',
+                          weight: 'bold',
+                          color: badgeColor,
+                          flex: 2,
+                          align: 'end',
+                          wrap: true,
+                        },
+                      ],
+                    },
+                    {
+                      type: 'box',
+                      layout: 'horizontal',
+                      margin: 'xs',
+                      contents: [
+                        { type: 'text', text: `花費: $${c.spend.toLocaleString()}`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
+                        { type: 'text', text: `CTR: ${c.ctr.toFixed(2)}%`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
+                        {
+                          type: 'text',
+                          text: c.conversions > 0
+                            ? (hasRoas ? `CPA $${c.cpa.toFixed(0)} (${c.conversions}筆)` : `${c.conversions}筆轉換`)
+                            : '0筆轉換',
+                          size: 'xxs',
+                          color: '#0F172A',
+                          weight: 'bold',
+                          align: 'end',
+                          flex: 3,
+                          wrap: true,
+                        },
+                      ],
+                    },
+                  ],
+                };
+              }),
             ],
           },
           // ⚠️ 素材健康度檢測結果
@@ -987,9 +1156,13 @@ export class FlexBuilder {
       },
     };
 
+    const altText = isLeadAccount
+      ? `📊【${accountName}】Meta 廣告成效週報 (CPA $${metrics.cpa.toFixed(0)}，轉換 ${metrics.conversions} 筆)`
+      : `📊【${accountName}】Meta 廣告成效週報 (ROAS ${metrics.roas.toFixed(2)}x)`;
+
     return {
       type: 'flex',
-      altText: `📊【${accountName}】Meta 廣告成效週報 (ROAS ${metrics.roas.toFixed(2)}x)`,
+      altText,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }
@@ -1141,13 +1314,23 @@ export class FlexBuilder {
   }
 
   /**
-   * 8. 建立吸血鬼 vs 金牛素材四象限分析 (Creative Matrix) Flex Message
+   * 8. 建立吸血鬼 vs 金牛素材四象限分析 (Creative Matrix) Flex Message (支援 ROAS 與 CPA 雙軌)
    */
   public static buildCreativeMatrixFlex(
-    matrixData: { items: CreativeMatrixItem[]; avgCtr: number; avgRoas: number },
+    matrixData: {
+      items: CreativeMatrixItem[];
+      avgCtr: number;
+      avgRoas: number;
+      avgCpa?: number;
+      totalConversions?: number;
+      primaryMetric?: 'roas' | 'cpa';
+    },
     accountName: string
   ): messagingApi.FlexMessage {
-    const { items, avgCtr, avgRoas } = matrixData;
+    const { items, avgCtr, avgRoas, avgCpa = 0, totalConversions = 0 } = matrixData;
+    const isCpaMode =
+      matrixData.primaryMetric === 'cpa' ||
+      (avgRoas <= 0.05 && (totalConversions > 0 || items.some((i) => i.conversions > 0)));
 
     const winning = items.filter((i) => i.quadrant === 'winning');
     const vampire = items.filter((i) => i.quadrant === 'vampire');
@@ -1176,7 +1359,7 @@ export class FlexBuilder {
             layout: 'horizontal',
             alignItems: 'center',
             contents: [
-              { type: 'text', text: title, size: 'xs', weight: 'bold', color: '#0F172A', flex: 4 },
+              { type: 'text', text: title, size: 'xs', weight: 'bold', color: '#0F172A', flex: 4, wrap: true },
               {
                 type: 'box',
                 layout: 'horizontal',
@@ -1199,62 +1382,102 @@ export class FlexBuilder {
             margin: 'xs',
           },
           ...(topItems.length > 0
-            ? topItems.map((item) => ({
-                type: 'box',
-                layout: 'vertical',
-                backgroundColor: '#FFFFFF',
-                cornerRadius: '6px',
-                paddingAll: '8px',
-                margin: 'xs',
-                contents: [
-                  {
-                    type: 'text',
-                    text: `🎯 ${item.name}`,
-                    size: 'xs',
-                    weight: 'bold',
-                    color: '#1E293B',
-                    wrap: true,
-                  },
-                  {
-                    type: 'box',
-                    layout: 'horizontal',
-                    margin: 'xs',
-                    contents: [
-                      {
-                        type: 'text',
-                        text: `CTR: ${item.ctr.toFixed(2)}%`,
-                        size: 'xxs',
-                        color: item.ctr >= avgCtr ? '#059669' : '#64748B',
-                        weight: item.ctr >= avgCtr ? 'bold' : 'regular',
-                        flex: 1,
-                        wrap: true,
-                      },
-                      {
-                        type: 'text',
-                        text: `ROAS: ${item.roas.toFixed(2)}x`,
-                        size: 'xxs',
-                        color: item.roas >= avgRoas ? '#059669' : '#DC2626',
-                        weight: 'bold',
-                        flex: 1,
-                        wrap: true,
-                      },
-                      {
-                        type: 'text',
-                        text: `花費: $${item.spend.toFixed(0)}`,
-                        size: 'xxs',
-                        color: '#64748B',
-                        align: 'end',
-                        flex: 1,
-                        wrap: true,
-                      },
-                    ],
-                  },
-                ],
-              }))
+            ? topItems.map((item) => {
+                const metricCol2Text = isCpaMode
+                  ? item.conversions > 0
+                    ? `CPA: $${item.cpa.toFixed(0)}`
+                    : 'CPA: — (0筆)'
+                  : `ROAS: ${item.roas.toFixed(2)}x`;
+                const metricCol2Color = isCpaMode
+                  ? item.conversions > 0 && (avgCpa === 0 || item.cpa <= avgCpa)
+                    ? '#059669'
+                    : '#DC2626'
+                  : item.roas >= avgRoas
+                  ? '#059669'
+                  : '#DC2626';
+
+                return {
+                  type: 'box',
+                  layout: 'vertical',
+                  backgroundColor: '#FFFFFF',
+                  cornerRadius: '6px',
+                  paddingAll: '8px',
+                  margin: 'xs',
+                  contents: [
+                    {
+                      type: 'text',
+                      text: `🎯 ${item.name}`,
+                      size: 'xs',
+                      weight: 'bold',
+                      color: '#1E293B',
+                      wrap: true,
+                    },
+                    {
+                      type: 'box',
+                      layout: 'horizontal',
+                      margin: 'xs',
+                      contents: [
+                        {
+                          type: 'text',
+                          text: `CTR: ${item.ctr.toFixed(2)}%`,
+                          size: 'xxs',
+                          color: item.ctr >= avgCtr ? '#059669' : '#64748B',
+                          weight: item.ctr >= avgCtr ? 'bold' : 'regular',
+                          flex: 1,
+                          wrap: true,
+                        },
+                        {
+                          type: 'text',
+                          text: metricCol2Text,
+                          size: 'xxs',
+                          color: metricCol2Color,
+                          weight: 'bold',
+                          flex: 1,
+                          wrap: true,
+                        },
+                        {
+                          type: 'text',
+                          text: `花費: $${item.spend.toFixed(0)}`,
+                          size: 'xxs',
+                          color: '#64748B',
+                          align: 'end',
+                          flex: 1,
+                          wrap: true,
+                        },
+                      ],
+                    },
+                    ...(item.conversions > 0
+                      ? [
+                          {
+                            type: 'box',
+                            layout: 'horizontal',
+                            margin: 'xs',
+                            contents: [
+                              {
+                                type: 'text',
+                                text: isCpaMode
+                                  ? `累積獲得 ${item.conversions} 筆名單/轉換`
+                                  : `獲客 CPA $${item.cpa.toFixed(0)} (${item.conversions}筆轉換)`,
+                                size: 'xxs',
+                                color: '#059669',
+                                weight: 'bold',
+                                wrap: true,
+                              },
+                            ],
+                          },
+                        ]
+                      : []),
+                  ],
+                };
+              })
             : [{ type: 'text', text: '（無符合此象限之活躍素材）', size: 'xxs', color: '#94A3B8', margin: 'xs', wrap: true }]),
         ],
       };
     };
+
+    const benchmarkSubtitle = isCpaMode
+      ? `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均 CPA $${avgCpa.toFixed(0)} (近7天)`
+      : `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均 ROAS ${avgRoas.toFixed(2)}x (近7天)`;
 
     const bubble: any = {
       type: 'bubble',
@@ -1269,7 +1492,13 @@ export class FlexBuilder {
             type: 'box',
             layout: 'horizontal',
             contents: [
-              { type: 'text', text: '🎯 吸血鬼 vs 金牛素材四象限診斷', size: 'xs', color: '#C7D2FE', weight: 'bold' },
+              {
+                type: 'text',
+                text: isCpaMode ? '🎯 名單獲客素材四象限診斷' : '🎯 吸血鬼 vs 金牛素材四象限診斷',
+                size: 'xs',
+                color: '#C7D2FE',
+                weight: 'bold',
+              },
               { type: 'text', text: 'CREATIVE MATRIX', size: 'xxs', color: '#818CF8', align: 'end' },
             ],
           },
@@ -1284,7 +1513,7 @@ export class FlexBuilder {
           },
           {
             type: 'text',
-            text: `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均 ROAS ${avgRoas.toFixed(2)}x (近7天)`,
+            text: benchmarkSubtitle,
             size: 'xxs',
             color: '#E0E7FF',
             wrap: true,
@@ -1297,40 +1526,75 @@ export class FlexBuilder {
         layout: 'vertical',
         spacing: 'none',
         paddingAll: '10px',
-        contents: [
-          renderQuadSection(
-            '🏆 金牛素材 (High CTR & High ROAS)',
-            '金牛',
-            '#059669',
-            '#ECFDF5',
-            winning,
-            '💡 點擊強且超賺錢！建議加大預算擴圈或製作類似素材衍伸。'
-          ),
-          renderQuadSection(
-            '🧛 吸血鬼素材 (High CTR & Low ROAS)',
-            '吸血鬼',
-            '#DC2626',
-            '#FEF2F2',
-            vampire,
-            '🛑 數據表象與意圖錯位！高點擊卻進站不買，屬於吃錢怪獸，應檢查落地頁或降權！'
-          ),
-          renderQuadSection(
-            '💎 潛力金礦 (Low CTR & High ROAS)',
-            '潛力',
-            '#2563EB',
-            '#EFF6FF',
-            potential,
-            '💡 受眾精準轉單極佳，但吸睛度偏低。建議更換前3秒 Hook 或加強縮圖吸引力！'
-          ),
-          renderQuadSection(
-            '🥀 疲勞淘汰 (Low CTR & Low ROAS)',
-            '疲勞',
-            '#64748B',
-            '#F8FAFC',
-            fatigued,
-            '✂️ 點擊與轉化雙低，持續空燒預算。建議暫停投放以釋放預算額度。'
-          ),
-        ],
+        contents: isCpaMode
+          ? [
+              renderQuadSection(
+                '🏆 金牛名單素材 (High CTR & Low CPA)',
+                '金牛',
+                '#059669',
+                '#ECFDF5',
+                winning,
+                '💡 點擊強且獲客成本超低！高意圖精準流量，建議加大預算擴圈或製作衍伸。'
+              ),
+              renderQuadSection(
+                '🧛 吸血鬼名單素材 (High CTR & High CPA)',
+                '吸血鬼',
+                '#DC2626',
+                '#FEF2F2',
+                vampire,
+                '🛑 意圖錯位！高點擊但表單填寫昂貴或零留名單，屬於吃錢怪獸，應檢查表單跳轉或暫停！'
+              ),
+              renderQuadSection(
+                '💎 潛力金礦 (Low CTR & Low CPA)',
+                '潛力',
+                '#2563EB',
+                '#EFF6FF',
+                potential,
+                '💡 獲客成本極佳但吸睛度偏低。受眾精準，建議更換前3秒 Hook 或加強文案縮圖吸引力！'
+              ),
+              renderQuadSection(
+                '🥀 疲勞淘汰 (Low CTR & High CPA)',
+                '疲勞',
+                '#64748B',
+                '#F8FAFC',
+                fatigued,
+                '✂️ 點擊與轉化雙低，持續空燒預算。建議暫停投放以釋放預算額度。'
+              ),
+            ]
+          : [
+              renderQuadSection(
+                '🏆 金牛素材 (High CTR & High ROAS)',
+                '金牛',
+                '#059669',
+                '#ECFDF5',
+                winning,
+                '💡 點擊強且超賺錢！建議加大預算擴圈或製作類似素材衍伸。'
+              ),
+              renderQuadSection(
+                '🧛 吸血鬼素材 (High CTR & Low ROAS)',
+                '吸血鬼',
+                '#DC2626',
+                '#FEF2F2',
+                vampire,
+                '🛑 數據表象與意圖錯位！高點擊卻進站不買，屬於吃錢怪獸，應檢查落地頁或降權！'
+              ),
+              renderQuadSection(
+                '💎 潛力金礦 (Low CTR & High ROAS)',
+                '潛力',
+                '#2563EB',
+                '#EFF6FF',
+                potential,
+                '💡 受眾精準轉單極佳，但吸睛度偏低。建議更換前3秒 Hook 或加強縮圖吸引力！'
+              ),
+              renderQuadSection(
+                '🥀 疲勞淘汰 (Low CTR & Low ROAS)',
+                '疲勞',
+                '#64748B',
+                '#F8FAFC',
+                fatigued,
+                '✂️ 點擊與轉化雙低，持續空燒預算。建議暫停投放以釋放預算額度。'
+              ),
+            ],
       },
       footer: {
         type: 'box',
@@ -1361,9 +1625,13 @@ export class FlexBuilder {
       },
     };
 
+    const altText = isCpaMode
+      ? `🎯【${accountName}】名單素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛名單素材`
+      : `🎯【${accountName}】素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛素材`;
+
     return {
       type: 'flex',
-      altText: `🎯【${accountName}】素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛素材`,
+      altText,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }
