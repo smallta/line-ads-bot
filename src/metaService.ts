@@ -1,5 +1,7 @@
 import { config } from './config.js';
 
+export type ConversionGoalType = 'purchase' | 'messaging' | 'lead';
+
 export interface OverviewMetrics {
   accountName: string;
   accountId: string;
@@ -16,6 +18,10 @@ export interface OverviewMetrics {
   conversions: number;
   cpa: number;
   roas: number;
+  conversionGoal: ConversionGoalType;
+  metricLabel: string;
+  costLabel: string;
+  unitLabel: string;
 }
 
 export interface CampaignSummary {
@@ -28,7 +34,11 @@ export interface CampaignSummary {
   roas: number;
   conversions: number;
   cpa: number;
-  primaryMetric: 'roas' | 'cpa';
+  primaryMetric: 'roas' | 'cpa' | 'messaging';
+  conversionGoal: ConversionGoalType;
+  metricLabel: string;
+  costLabel: string;
+  unitLabel: string;
 }
 
 export interface FatigueSummary {
@@ -114,11 +124,25 @@ export class MetaService {
     return data as T;
   }
 
-  /**
-   * 智慧萃取核心轉換數 (包含電商購買、名單留下、會員註冊、非營利捐款、預約等)
-   */
-  public static extractConversions(actions?: Array<{ action_type: string; value: string }>): number {
-    if (!actions || actions.length === 0) return 0;
+  public static extractConversionDetails(
+    actions?: Array<{ action_type: string; value: string }>,
+    revenue = 0
+  ): {
+    conversions: number;
+    conversionGoal: ConversionGoalType;
+    metricLabel: string;
+    costLabel: string;
+    unitLabel: string;
+  } {
+    if (!actions || actions.length === 0) {
+      return {
+        conversions: 0,
+        conversionGoal: 'lead',
+        metricLabel: '轉換',
+        costLabel: 'CPA',
+        unitLabel: '筆',
+      };
+    }
 
     // 1. 電商購買 / 實體門市下單
     const purchaseAct = actions.find(
@@ -127,9 +151,23 @@ export class MetaService {
         a.action_type === 'omni_purchase' ||
         a.action_type === 'web_in_store_purchase'
     );
-    if (purchaseAct) return parseFloat(purchaseAct.value || '0');
+    const purchaseCount = purchaseAct ? parseFloat(purchaseAct.value || '0') : 0;
 
-    // 2. 名單收集 / 預約諮詢 / 註冊 / 捐款
+    // 2. 互動訊息事件 (包含開始對話次數、傳訊連線數、新發起傳訊聯絡人)
+    const msgStartedAct = actions.find(
+      (a) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d'
+    );
+    const msgTotalAct = actions.find(
+      (a) => a.action_type === 'onsite_conversion.total_messaging_connection'
+    );
+    const msgFirstReplyAct = actions.find(
+      (a) => a.action_type === 'onsite_conversion.messaging_first_reply'
+    );
+    const messagingCount = parseFloat(
+      msgStartedAct?.value || msgTotalAct?.value || msgFirstReplyAct?.value || '0'
+    );
+
+    // 3. 名單收集 / 預約諮詢 / 註冊 / 捐款
     const leadAct = actions.find(
       (a) =>
         a.action_type === 'lead' ||
@@ -142,9 +180,78 @@ export class MetaService {
         a.action_type === 'submit_application' ||
         a.action_type === 'subscribe'
     );
-    if (leadAct) return parseFloat(leadAct.value || '0');
+    const leadCount = leadAct ? parseFloat(leadAct.value || '0') : 0;
 
-    return 0;
+    // 🎯 智慧目標仲裁邏輯 (Objective Arbitration)：
+    // A. 若有電商營收或購買且購買數明顯，判定為電商購買導向
+    if (purchaseCount > 0 && (revenue > 0 || (purchaseCount >= messagingCount && purchaseCount >= leadCount))) {
+      return {
+        conversions: purchaseCount,
+        conversionGoal: 'purchase',
+        metricLabel: '購買',
+        costLabel: '購買成本 CPA',
+        unitLabel: '筆',
+      };
+    }
+
+    // B. 若有發起訊息對話，且發起對話數高於一般名單（或一般名單為零），判定為「互動訊息」導向
+    // （在醫美、諮詢、預約型廣告中，主軸為導流 LINE/Messenger 開始私訊對話）
+    if (messagingCount > 0 && messagingCount >= leadCount) {
+      return {
+        conversions: messagingCount,
+        conversionGoal: 'messaging',
+        metricLabel: '發起訊息',
+        costLabel: '單則訊息成本',
+        unitLabel: '則',
+      };
+    }
+
+    // C. 若名單數高於訊息數，或僅有名單事件，判定為名單導向
+    if (leadCount > 0) {
+      return {
+        conversions: leadCount,
+        conversionGoal: 'lead',
+        metricLabel: '名單',
+        costLabel: '名單成本 CPA',
+        unitLabel: '筆',
+      };
+    }
+
+    // D. 次要保底：若只有訊息（哪怕少於其他未列項目）
+    if (messagingCount > 0) {
+      return {
+        conversions: messagingCount,
+        conversionGoal: 'messaging',
+        metricLabel: '發起訊息',
+        costLabel: '單則訊息成本',
+        unitLabel: '則',
+      };
+    }
+
+    if (purchaseCount > 0) {
+      return {
+        conversions: purchaseCount,
+        conversionGoal: 'purchase',
+        metricLabel: '購買',
+        costLabel: '購買成本 CPA',
+        unitLabel: '筆',
+      };
+    }
+
+    return {
+      conversions: 0,
+      conversionGoal: 'lead',
+      metricLabel: '轉換',
+      costLabel: 'CPA',
+      unitLabel: '筆',
+    };
+  }
+
+  /**
+   * 智慧萃取核心轉換數
+   */
+  public static extractConversions(actions?: Array<{ action_type: string; value: string }>, revenue = 0): number {
+    return this.extractConversionDetails(actions, revenue).conversions;
   }
 
   /**
@@ -218,9 +325,10 @@ export class MetaService {
     const cpm = parseFloat(insight.cpm || '0');
     const frequency = parseFloat(insight.frequency || '0');
 
-    const conversions = this.extractConversions(insight.actions);
+    const { roas, revenue } = this.extractRevenue(insight.action_values, insight.purchase_roas, spend);
+    const convDetails = this.extractConversionDetails(insight.actions, revenue);
+    const conversions = convDetails.conversions;
     const cpa = conversions > 0 ? spend / conversions : 0;
-    const { roas } = this.extractRevenue(insight.action_values, insight.purchase_roas, spend);
 
     return {
       accountName: accountInfo.name,
@@ -238,6 +346,10 @@ export class MetaService {
       conversions,
       cpa,
       roas,
+      conversionGoal: convDetails.conversionGoal,
+      metricLabel: convDetails.metricLabel,
+      costLabel: convDetails.costLabel,
+      unitLabel: convDetails.unitLabel,
     };
   }
 
@@ -275,13 +387,21 @@ export class MetaService {
       const insight = c.insights?.data?.[0];
       const spend = insight ? parseFloat(insight.spend || '0') : 0;
       const ctr = insight ? parseFloat(insight.ctr || '0') : 0;
-      const conversions = this.extractConversions(insight?.actions);
+      const { roas, revenue } = this.extractRevenue(insight?.action_values, insight?.purchase_roas, spend);
+      const convDetails = this.extractConversionDetails(insight?.actions, revenue);
+      const conversions = convDetails.conversions;
       const cpa = conversions > 0 ? spend / conversions : 0;
-      const { roas } = this.extractRevenue(insight?.action_values, insight?.purchase_roas, spend);
 
       let budgetDesc = 'ABO';
       if (c.daily_budget) {
         budgetDesc = `CBO $${(parseFloat(c.daily_budget) / 100).toFixed(0)}/日`;
+      }
+
+      let primaryMetric: 'roas' | 'cpa' | 'messaging' = 'cpa';
+      if (roas > 0) {
+        primaryMetric = 'roas';
+      } else if (convDetails.conversionGoal === 'messaging') {
+        primaryMetric = 'messaging';
       }
 
       return {
@@ -294,7 +414,11 @@ export class MetaService {
         roas,
         conversions,
         cpa,
-        primaryMetric: roas > 0 ? 'roas' : 'cpa',
+        primaryMetric,
+        conversionGoal: convDetails.conversionGoal,
+        metricLabel: convDetails.metricLabel,
+        costLabel: convDetails.costLabel,
+        unitLabel: convDetails.unitLabel,
       };
     });
   }
@@ -528,7 +652,7 @@ export class MetaService {
   }
 
   /**
-   * 吸血鬼 vs 金牛素材四象限分析 (Creative Matrix，支援 ROAS 電商模式與 CPA 名單模式雙軌制)
+   * 吸血鬼 vs 金牛素材四象限分析 (Creative Matrix，支援 ROAS 電商、互動訊息 Messaging、CPA 名單多軌制)
    */
   public static async getCreativeMatrix(accountId: string): Promise<{
     items: CreativeMatrixItem[];
@@ -536,7 +660,8 @@ export class MetaService {
     avgRoas: number;
     avgCpa: number;
     totalConversions: number;
-    primaryMetric: 'roas' | 'cpa';
+    primaryMetric: 'roas' | 'cpa' | 'messaging';
+    conversionGoal: ConversionGoalType;
   }> {
     const res = await this.request<{
       data: Array<{
@@ -568,6 +693,7 @@ export class MetaService {
       roas: number;
       cpa: number;
       conversions: number;
+      conversionGoal: ConversionGoalType;
     }> = [];
 
     let totalSpend = 0;
@@ -587,9 +713,10 @@ export class MetaService {
       const clicks = parseInt(insight.clicks || '0', 10);
       const ctr = parseFloat(insight.ctr || '0');
 
-      const conversions = this.extractConversions(insight.actions);
-      const cpa = conversions > 0 ? spend / conversions : 0;
       const { roas, revenue } = this.extractRevenue(insight.action_values, insight.purchase_roas, spend);
+      const convDetails = this.extractConversionDetails(insight.actions, revenue);
+      const conversions = convDetails.conversions;
+      const cpa = conversions > 0 ? spend / conversions : 0;
 
       totalSpend += spend;
       totalClicks += clicks;
@@ -605,6 +732,7 @@ export class MetaService {
         roas,
         cpa,
         conversions,
+        conversionGoal: convDetails.conversionGoal,
       });
     }
 
@@ -612,26 +740,40 @@ export class MetaService {
     const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
     const avgCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
 
-    // 判斷該帳號/素材群是名單獲客型 (CPA Mode) 還是電商轉單型 (ROAS Mode)
-    const isCpaMode = avgRoas <= 0.05 && (totalConversions > 0 || totalSpend > 0);
-    const primaryMetric: 'roas' | 'cpa' = isCpaMode ? 'cpa' : 'roas';
+    // 判斷該帳號/素材群的主要目標：電商 (ROAS) ｜ 互動訊息 (Messaging) ｜ 名單 (CPA)
+    const isRoasMode = avgRoas > 0.05 && totalRevenue > 0;
+    const messagingAdsCount = parsed.filter((p) => p.conversionGoal === 'messaging' && p.conversions > 0).length;
+    const isMessagingMode = !isRoasMode && messagingAdsCount > 0;
+
+    let primaryMetric: 'roas' | 'cpa' | 'messaging' = 'cpa';
+    let conversionGoal: ConversionGoalType = 'lead';
+
+    if (isRoasMode) {
+      primaryMetric = 'roas';
+      conversionGoal = 'purchase';
+    } else if (isMessagingMode) {
+      primaryMetric = 'messaging';
+      conversionGoal = 'messaging';
+    }
+
+    const isCostDrivenMode = !isRoasMode; // 包含訊息與名單模式
 
     const items: CreativeMatrixItem[] = parsed.map((p) => {
       let quadrant: 'winning' | 'vampire' | 'potential' | 'fatigued' = 'fatigued';
       const isHighCtr = p.ctr >= avgCtr;
 
-      if (isCpaMode) {
-        // 名單獲客模式：CPA 越低越好 (獲客成本低於大盤平均且有轉換)
-        const isGoodCpa = p.conversions > 0 && (avgCpa === 0 || p.cpa <= avgCpa);
+      if (isCostDrivenMode) {
+        // 成本導向模式 (訊息或名單)：成本越低越好
+        const isGoodCost = p.conversions > 0 && (avgCpa === 0 || p.cpa <= avgCpa);
 
-        if (isHighCtr && isGoodCpa) {
-          quadrant = 'winning';    // 🏆 金牛名單素材 (高點擊 + 低獲客成本)
-        } else if (isHighCtr && !isGoodCpa) {
-          quadrant = 'vampire';    // 🧛 吸血鬼素材 (高點擊 + 高獲客成本/零轉換)
-        } else if (!isHighCtr && isGoodCpa) {
-          quadrant = 'potential';  // 💎 潛力金礦 (低點擊 + 低獲客成本)
+        if (isHighCtr && isGoodCost) {
+          quadrant = 'winning';    // 🏆 金牛素材 (高點擊 + 低成本)
+        } else if (isHighCtr && !isGoodCost) {
+          quadrant = 'vampire';    // 🧛 吸血鬼素材 (高點擊 + 高成本/零轉換)
+        } else if (!isHighCtr && isGoodCost) {
+          quadrant = 'potential';  // 💎 潛力金礦 (低點擊 + 低成本)
         } else {
-          quadrant = 'fatigued';   // 🥀 疲勞淘汰 (低點擊 + 高獲客成本/零轉換)
+          quadrant = 'fatigued';   // 🥀 疲勞淘汰 (低點擊 + 高成本/零轉換)
         }
       } else {
         // 電商營收模式：ROAS 越高越好
@@ -654,6 +796,6 @@ export class MetaService {
       };
     });
 
-    return { items, avgCtr, avgRoas, avgCpa, totalConversions, primaryMetric };
+    return { items, avgCtr, avgRoas, avgCpa, totalConversions, primaryMetric, conversionGoal };
   }
 }

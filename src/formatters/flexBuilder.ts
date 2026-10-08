@@ -1,12 +1,13 @@
 import { messagingApi } from '@line/bot-sdk';
-import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison } from '../metaService.js';
+import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison, ConversionGoalType } from '../metaService.js';
 
 export class FlexBuilder {
   /**
    * 1. 建立大盤成效儀表板 Flex Message
    */
   public static buildOverviewFlex(metrics: OverviewMetrics): messagingApi.FlexMessage {
-    const isLeadAccount = metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0);
+    const isMessagingAccount = metrics.conversionGoal === 'messaging';
+    const isLeadAccount = !isMessagingAccount && (metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0));
     const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
 
     const bubble: any = {
@@ -79,8 +80,52 @@ export class FlexBuilder {
               },
             ],
           },
-          // 核心 4 格指標 (2x2 Grid) - 根據名單模式或電商模式自動排列核心指標
-          isLeadAccount
+          // 核心 4 格指標 (2x2 Grid) - 根據互動訊息、名單模式或電商模式自動排列核心指標
+          isMessagingAccount
+            ? {
+                type: 'box',
+                layout: 'horizontal',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    backgroundColor: '#F1F5F9',
+                    cornerRadius: '8px',
+                    paddingAll: '10px',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '單則訊息成本', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: metrics.cpa > 0 ? `$${metrics.cpa.toFixed(1)}` : '—',
+                        size: 'lg',
+                        weight: 'bold',
+                        color: metrics.cpa > 0 ? '#059669' : '#0F172A',
+                      },
+                    ],
+                  },
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    backgroundColor: '#F1F5F9',
+                    cornerRadius: '8px',
+                    paddingAll: '10px',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '開始對話數', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `${metrics.conversions} 則`,
+                        size: 'lg',
+                        weight: 'bold',
+                        color: '#2563EB',
+                      },
+                    ],
+                  },
+                ],
+              }
+            : isLeadAccount
             ? {
                 type: 'box',
                 layout: 'horizontal',
@@ -197,7 +242,7 @@ export class FlexBuilder {
                 cornerRadius: '8px',
                 paddingAll: '10px',
                 flex: 1,
-                contents: isLeadAccount
+                contents: (isMessagingAccount || isLeadAccount)
                   ? [
                       { type: 'text', text: '平均千次 CPM', size: 'xxs', color: '#64748B' },
                       {
@@ -281,7 +326,9 @@ export class FlexBuilder {
       },
     };
 
-    const altText = isLeadAccount
+    const altText = isMessagingAccount
+      ? `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，發起 ${metrics.conversions} 則訊息 (單則 $${metrics.cpa.toFixed(0)})`
+      : isLeadAccount
       ? `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，累積 ${metrics.conversions} 筆轉換 (CPA $${metrics.cpa.toFixed(0)})`
       : `【${metrics.accountName}】成效快報：花費 $${metrics.spend.toLocaleString()}，ROAS ${metrics.roas.toFixed(2)}x (CPA $${metrics.cpa.toFixed(0)})`;
 
@@ -425,16 +472,27 @@ export class FlexBuilder {
         spacing: 'sm',
         paddingAll: '12px',
         contents: campaigns.slice(0, 6).map((c, i) => {
-          const hasRoas = c.roas > 0;
-          const isWinner = c.roas >= 2.0 || (c.roas === 0 && c.conversions > 0);
-          const badgeText = hasRoas
-            ? `ROAS ${c.roas.toFixed(2)}x`
-            : c.conversions > 0
-            ? `CPA $${c.cpa.toFixed(0)}`
-            : '無轉換';
-          const badgeColor = hasRoas
-            ? (c.roas >= 2.0 ? '#059669' : c.roas >= 1.0 ? '#2563EB' : '#DC2626')
-            : (c.conversions > 0 ? '#059669' : '#64748B');
+          const isMessaging = c.primaryMetric === 'messaging' || c.conversionGoal === 'messaging';
+          const hasRoas = c.primaryMetric === 'roas' || c.roas > 0;
+          const isWinner = isMessaging
+            ? c.conversions > 0
+            : hasRoas
+            ? c.roas >= 2.0
+            : c.conversions > 0;
+
+          let badgeText = '無轉換';
+          let badgeColor = '#64748B';
+
+          if (isMessaging) {
+            badgeText = c.conversions > 0 ? `單則 $${c.cpa.toFixed(0)}` : '0 則訊息';
+            badgeColor = c.conversions > 0 ? '#059669' : '#64748B';
+          } else if (hasRoas) {
+            badgeText = `ROAS ${c.roas.toFixed(2)}x`;
+            badgeColor = c.roas >= 2.0 ? '#059669' : c.roas >= 1.0 ? '#2563EB' : '#DC2626';
+          } else {
+            badgeText = c.conversions > 0 ? `CPA $${c.cpa.toFixed(0)}` : '無轉換';
+            badgeColor = c.conversions > 0 ? '#059669' : '#64748B';
+          }
 
           return {
             type: 'box',
@@ -479,7 +537,9 @@ export class FlexBuilder {
                   { type: 'text', text: `CTR: ${c.ctr.toFixed(2)}%`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
                   {
                     type: 'text',
-                    text: hasRoas
+                    text: isMessaging
+                      ? (c.conversions > 0 ? `${c.conversions} 則訊息對話` : '0 則訊息')
+                      : hasRoas
                       ? (c.conversions > 0 ? `CPA $${c.cpa.toFixed(0)} (${c.conversions}筆)` : '0筆轉換')
                       : (c.conversions > 0 ? `${c.conversions} 筆轉換` : '0筆轉換'),
                     size: 'xxs',
@@ -505,9 +565,14 @@ export class FlexBuilder {
       },
     };
 
+    const hasAnyMessaging = campaigns.some((c) => c.primaryMetric === 'messaging' || c.conversionGoal === 'messaging');
+    const altText = hasAnyMessaging
+      ? `【${accountName}】活躍活動列表 (互動訊息主軸)`
+      : `【${accountName}】活躍活動列表`;
+
     return {
       type: 'flex',
-      altText: `【${accountName}】活躍活動列表`,
+      altText,
       contents: bubble as any,
     } as any as messagingApi.FlexMessage;
   }
@@ -713,10 +778,14 @@ export class FlexBuilder {
     datePresetLabel = '過去 7 天全盤數據',
     delta?: WeeklyComparison['delta']
   ): messagingApi.FlexMessage {
-    const isLeadAccount = metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0);
+    const isMessagingAccount = metrics.conversionGoal === 'messaging';
+    const isLeadAccount = !isMessagingAccount && (metrics.roas <= 0.05 && (metrics.conversions > 0 || metrics.spend > 0));
     const roasColor = metrics.roas >= 2.0 ? '#059669' : metrics.roas >= 1.0 ? '#2563EB' : '#DC2626';
     const topCampaigns = campaigns.slice(0, 3);
     const hasFatigue = fatigued.length > 0;
+
+    const convUnit = isMessagingAccount ? '則' : '筆';
+    const convLabel = isMessagingAccount ? '訊息' : '轉換';
 
     // WoW 環比數據展示輔助文字
     const spendWoW = delta
@@ -726,7 +795,7 @@ export class FlexBuilder {
       ? `${delta.roasDiff >= 0 ? '🔺 +' : '🔻 '}${Math.abs(delta.roasDiff).toFixed(2)} vs上週`
       : undefined;
     const convWoW = delta
-      ? `${delta.conversionsDiff >= 0 ? '🔺 +' : '🔻 '}${Math.abs(delta.conversionsDiff)} 筆`
+      ? `${delta.conversionsDiff >= 0 ? '🔺 +' : '🔻 '}${Math.abs(delta.conversionsDiff)} ${convUnit}`
       : undefined;
     const cpaWoW = delta
       ? `${delta.cpaPct <= 0 ? '🟢 降 ' : '🔴 升 '}${Math.abs(delta.cpaPct).toFixed(1)}%`
@@ -738,7 +807,29 @@ export class FlexBuilder {
     let adviceColor = '#1E293B';
     let adviceBg = '#F8FAFC';
 
-    if (isLeadAccount) {
+    if (isMessagingAccount) {
+      if (metrics.conversions > 0 && delta && delta.cpaPct <= -10) {
+        adviceTitle = '🚀 資本配置：攻守兼備 (建議加碼)';
+        adviceText = `平均單則訊息成本較上週大幅降低 ${Math.abs(delta.cpaPct).toFixed(1)}%（現為 $${metrics.cpa.toFixed(0)}/則），進線熱度與獲客效率顯著提升！建議向 Top 1 核心活動加碼 10~15% 擴大進線量。`;
+        adviceColor = '#065F46';
+        adviceBg = '#ECFDF5';
+      } else if (metrics.conversions > 0 && delta && delta.cpaPct > 20) {
+        adviceTitle = '🛑 資本配置：防禦排查 (成本飆升)';
+        adviceText = `單則訊息成本較上週飆升 ${delta.cpaPct.toFixed(1)}%（現為 $${metrics.cpa.toFixed(0)}/則），進線成本過高。建議輸入「素材象限」排查高點低轉之吸血鬼素材，收攏預算或優化私訊問候語。`;
+        adviceColor = '#991B1B';
+        adviceBg = '#FEF2F2';
+      } else if (metrics.spend > 0 && metrics.conversions === 0) {
+        adviceTitle = '🛑 資本配置：止血防禦 (零進線警報)';
+        adviceText = '本週已累積花費但尚無任何訊息對話發起，請立即排查粉專/IG私訊按鈕、自動問候語或 Meta 廣告連線狀態！';
+        adviceColor = '#991B1B';
+        adviceBg = '#FEF2F2';
+      } else {
+        adviceTitle = '⚖️ 資本配置：穩定進線 (維持節奏)';
+        adviceText = `平均單則訊息成本落在 $${metrics.cpa.toFixed(0)}，本週累積發起 ${metrics.conversions} 則訊息對話，節奏平穩。建議維持現有日預算投放。`;
+        adviceColor = '#1E40AF';
+        adviceBg = '#EFF6FF';
+      }
+    } else if (isLeadAccount) {
       if (metrics.conversions > 0 && delta && delta.cpaPct <= -10) {
         adviceTitle = '🚀 資本配置：攻守兼備 (建議加碼)';
         adviceText = `平均獲客 CPA 較上週大幅降低 ${Math.abs(delta.cpaPct).toFixed(1)}%（現為 $${metrics.cpa.toFixed(0)}），名單獲取效率顯著提升！建議向 Top 1 核心活動加碼 10~15% 擴大進單。`;
@@ -875,7 +966,37 @@ export class FlexBuilder {
                     : []),
                 ],
               },
-              isLeadAccount
+              isMessagingAccount
+                ? {
+                    type: 'box',
+                    layout: 'vertical',
+                    flex: 2,
+                    alignItems: 'flex-end',
+                    contents: [
+                      { type: 'text', text: '平均單則成本', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: metrics.cpa > 0 ? `$${metrics.cpa.toFixed(0)}` : '—',
+                        size: 'xl',
+                        weight: 'bold',
+                        color: metrics.cpa > 0 ? '#059669' : '#0F172A',
+                        margin: 'xs',
+                      },
+                      ...(cpaWoW
+                        ? [
+                            {
+                              type: 'text',
+                              text: cpaWoW,
+                              size: 'xxs',
+                              color: delta!.cpaPct <= 0 ? '#059669' : '#DC2626',
+                              weight: 'bold',
+                              margin: 'xs',
+                            },
+                          ]
+                        : []),
+                    ],
+                  }
+                : isLeadAccount
                 ? {
                     type: 'box',
                     layout: 'vertical',
@@ -950,11 +1071,13 @@ export class FlexBuilder {
                 paddingAll: '8px',
                 cornerRadius: '8px',
                 contents: [
-                  { type: 'text', text: '核心轉換', size: 'xxs', color: '#64748B' },
-                  { type: 'text', text: `${metrics.conversions} 筆`, size: 'sm', weight: 'bold', color: '#0F172A' },
+                  { type: 'text', text: isMessagingAccount ? '發起訊息對話' : '核心轉換', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${metrics.conversions} ${convUnit}`, size: 'sm', weight: 'bold', color: '#0F172A' },
                   {
                     type: 'text',
-                    text: `CPA $${metrics.cpa.toFixed(1)}${cpaWoW ? ` (${cpaWoW})` : ''}`,
+                    text: isMessagingAccount
+                      ? `單則 $${metrics.cpa.toFixed(1)}${cpaWoW ? ` (${cpaWoW})` : ''}`
+                      : `CPA $${metrics.cpa.toFixed(1)}${cpaWoW ? ` (${cpaWoW})` : ''}`,
                     size: 'xxs',
                     color: '#475569',
                     wrap: true,
@@ -963,7 +1086,7 @@ export class FlexBuilder {
                     ? [
                         {
                           type: 'text',
-                          text: `轉換 ${convWoW}`,
+                          text: `${convLabel} ${convWoW}`,
                           size: 'xxs',
                           color: delta!.conversionsDiff >= 0 ? '#059669' : '#DC2626',
                         },
@@ -1012,7 +1135,7 @@ export class FlexBuilder {
               },
             ],
           },
-          // 🏆 獲利 Top 3 活動小榜 (兼顧 ROAS 與 CPA)
+          // 🏆 獲利 Top 3 活動小榜 (兼顧 ROAS、CPA 與互動訊息)
           {
             type: 'box',
             layout: 'vertical',
@@ -1027,15 +1150,27 @@ export class FlexBuilder {
                 margin: 'xs',
               },
               ...topCampaigns.map((c, i) => {
-                const hasRoas = c.roas > 0;
-                const badgeText = hasRoas
-                  ? `ROAS ${c.roas.toFixed(2)}x`
-                  : c.conversions > 0
-                  ? `CPA $${c.cpa.toFixed(0)}`
-                  : '無轉換';
-                const badgeColor = hasRoas
-                  ? (c.roas >= 2.0 ? '#059669' : '#2563EB')
-                  : (c.conversions > 0 ? '#059669' : '#64748B');
+                const isMessaging = c.primaryMetric === 'messaging' || c.conversionGoal === 'messaging';
+                const hasRoas = c.primaryMetric === 'roas' || c.roas > 0;
+                let badgeText = '無轉換';
+                let badgeColor = '#64748B';
+
+                if (isMessaging) {
+                  badgeText = c.conversions > 0 ? `單則 $${c.cpa.toFixed(0)}` : '0 則訊息';
+                  badgeColor = c.conversions > 0 ? '#059669' : '#64748B';
+                } else if (hasRoas) {
+                  badgeText = `ROAS ${c.roas.toFixed(2)}x`;
+                  badgeColor = c.roas >= 2.0 ? '#059669' : '#2563EB';
+                } else {
+                  badgeText = c.conversions > 0 ? `CPA $${c.cpa.toFixed(0)}` : '無轉換';
+                  badgeColor = c.conversions > 0 ? '#059669' : '#64748B';
+                }
+
+                const convText = isMessaging
+                  ? (c.conversions > 0 ? `${c.conversions} 則訊息` : '0 則訊息')
+                  : hasRoas
+                  ? (c.conversions > 0 ? `CPA $${c.cpa.toFixed(0)} (${c.conversions}筆)` : '0筆轉換')
+                  : (c.conversions > 0 ? `${c.conversions} 筆轉換` : '0筆轉換');
 
                 return {
                   type: 'box',
@@ -1080,9 +1215,7 @@ export class FlexBuilder {
                         { type: 'text', text: `CTR: ${c.ctr.toFixed(2)}%`, size: 'xxs', color: '#64748B', flex: 2, wrap: true },
                         {
                           type: 'text',
-                          text: c.conversions > 0
-                            ? (hasRoas ? `CPA $${c.cpa.toFixed(0)} (${c.conversions}筆)` : `${c.conversions}筆轉換`)
-                            : '0筆轉換',
+                          text: convText,
                           size: 'xxs',
                           color: '#0F172A',
                           weight: 'bold',
@@ -1156,7 +1289,9 @@ export class FlexBuilder {
       },
     };
 
-    const altText = isLeadAccount
+    const altText = isMessagingAccount
+      ? `📊【${accountName}】Meta 廣告成效週報 (單則 $${metrics.cpa.toFixed(0)}，發起 ${metrics.conversions} 則訊息)`
+      : isLeadAccount
       ? `📊【${accountName}】Meta 廣告成效週報 (CPA $${metrics.cpa.toFixed(0)}，轉換 ${metrics.conversions} 筆)`
       : `📊【${accountName}】Meta 廣告成效週報 (ROAS ${metrics.roas.toFixed(2)}x)`;
 
@@ -1323,14 +1458,15 @@ export class FlexBuilder {
       avgRoas: number;
       avgCpa?: number;
       totalConversions?: number;
-      primaryMetric?: 'roas' | 'cpa';
+      primaryMetric?: 'roas' | 'cpa' | 'messaging';
+      conversionGoal?: ConversionGoalType;
     },
     accountName: string
   ): messagingApi.FlexMessage {
-    const { items, avgCtr, avgRoas, avgCpa = 0, totalConversions = 0 } = matrixData;
-    const isCpaMode =
-      matrixData.primaryMetric === 'cpa' ||
-      (avgRoas <= 0.05 && (totalConversions > 0 || items.some((i) => i.conversions > 0)));
+    const { items, avgCtr, avgRoas, avgCpa = 0, totalConversions = 0, primaryMetric, conversionGoal } = matrixData;
+    const isMessagingMode = primaryMetric === 'messaging' || conversionGoal === 'messaging';
+    const isRoasMode = primaryMetric === 'roas' || (!isMessagingMode && avgRoas > 0.05 && totalConversions === 0);
+    const isCpaMode = !isRoasMode && !isMessagingMode;
 
     const winning = items.filter((i) => i.quadrant === 'winning');
     const vampire = items.filter((i) => i.quadrant === 'vampire');
@@ -1383,12 +1519,16 @@ export class FlexBuilder {
           },
           ...(topItems.length > 0
             ? topItems.map((item) => {
-                const metricCol2Text = isCpaMode
+                const metricCol2Text = isMessagingMode
+                  ? item.conversions > 0
+                    ? `單則: $${item.cpa.toFixed(0)}`
+                    : '單則: — (0則)'
+                  : isCpaMode
                   ? item.conversions > 0
                     ? `CPA: $${item.cpa.toFixed(0)}`
                     : 'CPA: — (0筆)'
                   : `ROAS: ${item.roas.toFixed(2)}x`;
-                const metricCol2Color = isCpaMode
+                const metricCol2Color = (isMessagingMode || isCpaMode)
                   ? item.conversions > 0 && (avgCpa === 0 || item.cpa <= avgCpa)
                     ? '#059669'
                     : '#DC2626'
@@ -1455,7 +1595,9 @@ export class FlexBuilder {
                             contents: [
                               {
                                 type: 'text',
-                                text: isCpaMode
+                                text: isMessagingMode
+                                  ? `累積發起 ${item.conversions} 則訊息對話`
+                                  : isCpaMode
                                   ? `累積獲得 ${item.conversions} 筆名單/轉換`
                                   : `獲客 CPA $${item.cpa.toFixed(0)} (${item.conversions}筆轉換)`,
                                 size: 'xxs',
@@ -1475,9 +1617,17 @@ export class FlexBuilder {
       };
     };
 
-    const benchmarkSubtitle = isCpaMode
+    const benchmarkSubtitle = isMessagingMode
+      ? `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均單則成本 $${avgCpa.toFixed(0)} (近7天)`
+      : isCpaMode
       ? `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均 CPA $${avgCpa.toFixed(0)} (近7天)`
       : `基準線：平均 CTR ${avgCtr.toFixed(2)}% ｜ 平均 ROAS ${avgRoas.toFixed(2)}x (近7天)`;
+
+    const headerTitle = isMessagingMode
+      ? '🎯 互動訊息素材四象限診斷'
+      : isCpaMode
+      ? '🎯 名單獲客素材四象限診斷'
+      : '🎯 吸血鬼 vs 金牛素材四象限診斷';
 
     const bubble: any = {
       type: 'bubble',
@@ -1494,7 +1644,7 @@ export class FlexBuilder {
             contents: [
               {
                 type: 'text',
-                text: isCpaMode ? '🎯 名單獲客素材四象限診斷' : '🎯 吸血鬼 vs 金牛素材四象限診斷',
+                text: headerTitle,
                 size: 'xs',
                 color: '#C7D2FE',
                 weight: 'bold',
@@ -1526,7 +1676,42 @@ export class FlexBuilder {
         layout: 'vertical',
         spacing: 'none',
         paddingAll: '10px',
-        contents: isCpaMode
+        contents: isMessagingMode
+          ? [
+              renderQuadSection(
+                '🏆 金牛私訊素材 (High CTR & Low 訊息成本)',
+                '金牛',
+                '#059669',
+                '#ECFDF5',
+                winning,
+                '💡 點擊強且私訊成本超低！高意圖諮詢流量，建議加大預算擴圈或製作衍伸素材。'
+              ),
+              renderQuadSection(
+                '🧛 吸血鬼素材 (High CTR & High 訊息成本 / 零私訊)',
+                '吸血鬼',
+                '#DC2626',
+                '#FEF2F2',
+                vampire,
+                '🛑 意圖錯位！點擊率高但點進去不發訊息或成本昂貴，屬於空燒預算怪獸，應檢查問候語或暫停！'
+              ),
+              renderQuadSection(
+                '💎 潛力金礦 (Low CTR & Low 訊息成本)',
+                '潛力',
+                '#2563EB',
+                '#EFF6FF',
+                potential,
+                '💡 私訊成本極佳但吸睛度偏低。受眾精準，建議更換前3秒 Hook 或加強縮圖文案吸引力！'
+              ),
+              renderQuadSection(
+                '🥀 疲勞淘汰 (Low CTR & High 訊息成本 / 零私訊)',
+                '疲勞',
+                '#64748B',
+                '#F8FAFC',
+                fatigued,
+                '✂️ 點擊與私訊對話雙低，持續空燒預算。建議暫停投放以釋放預算額度。'
+              ),
+            ]
+          : isCpaMode
           ? [
               renderQuadSection(
                 '🏆 金牛名單素材 (High CTR & Low CPA)',
@@ -1625,7 +1810,9 @@ export class FlexBuilder {
       },
     };
 
-    const altText = isCpaMode
+    const altText = isMessagingMode
+      ? `🎯【${accountName}】互動訊息素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛私訊素材`
+      : isCpaMode
       ? `🎯【${accountName}】名單素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛名單素材`
       : `🎯【${accountName}】素材四象限診斷：發現 ${vampire.length} 支吸血鬼素材、${winning.length} 支金牛素材`;
 

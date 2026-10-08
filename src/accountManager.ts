@@ -155,7 +155,7 @@ export class AccountManager {
           : accounts.find((a) => a.id === 'act_296133962362410');
       } else if (cleanLower.includes('生活') || cleanLower.includes('公益國際')) {
         match = accounts.find((a) => a.id === 'act_755500688734546');
-      } else if (cleanLower.includes('生鮮') || cleanLower.includes('美食')) {
+      } else if (cleanLower.includes('生鮮') || cleanLower.includes('美食') || cleanLower === '醫美' || cleanLower.includes('生鮮醫美')) {
         match = accounts.find((a) => a.id === 'act_173149270766368');
       } else if (cleanLower.includes('美妝') || cleanLower.includes('心靈')) {
         match = accounts.find((a) => a.id === 'act_379347667227517');

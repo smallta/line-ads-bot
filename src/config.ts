@@ -43,6 +43,7 @@ export const KNOWN_ACCOUNTS: Record<string, { id: string; name: string; currency
   'test': { id: 'act_1081893298921164', name: 'test', currency: 'TWD' },
   '生鮮美食': { id: 'act_173149270766368', name: '【生鮮美食】、【醫美】', currency: 'TWD' },
   '生鮮美食醫美': { id: 'act_173149270766368', name: '【生鮮美食】、【醫美】', currency: 'TWD' },
+  '醫美': { id: 'act_173149270766368', name: '【生鮮美食】、【醫美】', currency: 'TWD' },
   '美妝保養心靈保健': { id: 'act_379347667227517', name: '【美妝保養】【心靈保健】', currency: 'TWD' },
   '美妝保養': { id: 'act_379347667227517', name: '【美妝保養】【心靈保健】', currency: 'TWD' },
   '心靈保健': { id: 'act_379347667227517', name: '【美妝保養】【心靈保健】', currency: 'TWD' },
