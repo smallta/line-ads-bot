@@ -125,6 +125,16 @@ export async function handleTextMessage(
       return;
     }
 
+    // 指令 1.6: 手動測試或即時推播晚報 (今日戰報)
+    if (/^(晚報|今日晚報|推播晚報|發送晚報|今日戰報|evening|evening\s*brief)$/i.test(trimmed)) {
+      await safeSendMessages(lineClient, replyToken, userId, [
+        { type: 'text', text: '🌙 正在為您即時生成並推播今日成效日落戰報卡片...' },
+      ]);
+      const { pushEveningBrief } = await import('../cron/pushEveningBrief.js');
+      await pushEveningBrief({ force: true });
+      return;
+    }
+
     // 指令 1.8: 週報 / 本週週報 / 看週報 / weekly (含 WoW 環比與資本配置指引)
     if (/^(週報|本週週報|看週報|查週報|每週報告|每週週報|weekly|weekly\s*report)$/i.test(trimmed)) {
       const [weeklyComp, campaigns, fatigued] = await Promise.all([

@@ -71,6 +71,22 @@ app.all('/cron/push-weekly', (req, res) => {
   });
 });
 
+// 外部排程觸發端點 (用於定時喚醒與觸發今日成效晚報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
+app.all('/cron/push-evening', (req, res) => {
+  console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行今日成效晚報推播...');
+  res.status(200).send('OK');
+
+  setImmediate(async () => {
+    try {
+      const { pushEveningBrief } = await import('./cron/pushEveningBrief.js');
+      await pushEveningBrief();
+      console.log('✅ [External Trigger] 背景晚報推播成功完成！');
+    } catch (err: any) {
+      console.error('❌ [External Trigger] 背景晚報推送失敗:', err.message);
+    }
+  });
+});
+
 // 一鍵建立與更新圖文選單端點
 app.all('/setup-rich-menu', async (req, res) => {
   try {
@@ -118,6 +134,7 @@ app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
 
 import cron from 'node-cron';
 import { pushMorningBrief } from './cron/pushMorningBrief.js';
+import { pushEveningBrief } from './cron/pushEveningBrief.js';
 import { pushWeeklyReport } from './cron/pushWeeklyReport.js';
 
 // 每日 09:00 (Asia/Taipei) 自動推播廣告成效晨報
@@ -128,7 +145,23 @@ cron.schedule(
     try {
       await pushMorningBrief();
     } catch (err: any) {
-      console.error('❌ [Cron] 自動推播失敗:', err);
+      console.error('❌ [Cron] 晨報自動推播失敗:', err);
+    }
+  },
+  {
+    timezone: 'Asia/Taipei',
+  }
+);
+
+// 每日 21:30 (Asia/Taipei) 自動推播今日成效日落晚報
+cron.schedule(
+  '30 21 * * *',
+  async () => {
+    console.log('⏰ [Cron] 觸發每日 21:30 今日成效晚報自動推播...');
+    try {
+      await pushEveningBrief();
+    } catch (err: any) {
+      console.error('❌ [Cron] 晚報自動推播失敗:', err);
     }
   },
   {
@@ -160,6 +193,8 @@ app.listen(config.port, () => {
   console.log(`📍 Webhook 路由：http://localhost:${config.port}/callback`);
   console.log(`🎯 預設監控帳號：【${runtimeState.currentAccountName}】(${runtimeState.currentAdAccountId})`);
   console.log(`⏰ 晨報自動推播：每日 09:00 (Asia/Taipei)`);
+  console.log(`⏰ 晚報自動推播：每日 21:30 (Asia/Taipei)`);
+  console.log(`⏰ 週報自動推播：每週一 10:00 (Asia/Taipei)`);
   console.log(`=======================================================`);
 
   // 🌟 伺服器自主保活心跳（每 10 分鐘對外發送一次 public ping，重置 Render 15 分鐘休眠倒數）
