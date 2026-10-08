@@ -105,7 +105,7 @@ export async function handleTextMessage(
       await safeSendMessages(lineClient, replyToken, userId, [
         { type: 'text', text: '🚀 正在為您即時生成並推播最新廣告晨報戰情卡片...' },
       ]);
-      await pushMorningBrief();
+      await pushMorningBrief({ force: true });
       return;
     }
 
@@ -133,7 +133,7 @@ export async function handleTextMessage(
       await safeSendMessages(lineClient, replyToken, userId, [
         { type: 'text', text: '📊 正在為您即時生成並推播每週廣告成效週報卡片...' },
       ]);
-      await pushWeeklyReport();
+      await pushWeeklyReport({ force: true });
       return;
     }
 
