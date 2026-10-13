@@ -77,6 +77,60 @@ const TOOL_DECLARATIONS = [
       required: ['targetAccount'],
     },
   },
+  {
+    name: 'pause_ad',
+    description: '暫停指定的 Meta 廣告素材（將其狀態設為 PAUSED）。用於止血、停損或疲勞素材淘汰。你具備此操作權限！',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        adId: {
+          type: 'STRING',
+          description: '廣告素材 ID（如 120210... 或 ad_120210...）。',
+        },
+        adName: {
+          type: 'STRING',
+          description: '廣告名稱（選填）。',
+        },
+      },
+      required: ['adId'],
+    },
+  },
+  {
+    name: 'pause_campaign',
+    description: '暫停指定的 Meta 行銷活動（將其狀態設為 PAUSED）。用於整體活動表現不佳或預算嚴重超支時一鍵止血。你具備此操作權限！',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        campaignId: {
+          type: 'STRING',
+          description: '行銷活動 ID（如 120210...）。',
+        },
+        campaignName: {
+          type: 'STRING',
+          description: '活動名稱（選填）。',
+        },
+      },
+      required: ['campaignId'],
+    },
+  },
+  {
+    name: 'reduce_budget',
+    description: '縮減指定行銷活動或廣告組合的日預算（預設調降 20%）。用於風控止血與預算收縮。你具備此操作權限！',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        targetId: {
+          type: 'STRING',
+          description: '目標活動或廣告組合 ID。',
+        },
+        percentage: {
+          type: 'NUMBER',
+          description: '縮減比例（小數，例如 0.2 代表縮減 20%）。預設 0.2。',
+        },
+      },
+      required: ['targetId'],
+    },
+  },
 ];
 
 // 解析帳號名稱或 ID（動態查詢全帳號庫與模糊比對）
@@ -145,12 +199,40 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
         };
       }
 
+      case 'pause_ad': {
+        const adId = String(args.adId);
+        const adName = args.adName;
+        const res = await MetaService.pauseAd(adId, adName);
+        return { success: true, message: `已成功將廣告【${res.name}】(${res.id}) 狀態設為 PAUSED 暫停！` };
+      }
+
+      case 'pause_campaign': {
+        const campaignId = String(args.campaignId);
+        const campaignName = args.campaignName;
+        const res = await MetaService.pauseCampaign(campaignId, campaignName);
+        return { success: true, message: `已成功將行銷活動【${res.name}】(${res.id}) 狀態設為 PAUSED 暫停！` };
+      }
+
+      case 'reduce_budget': {
+        const targetId = String(args.targetId);
+        const pct = typeof args.percentage === 'number' ? args.percentage : 0.2;
+        const res = await MetaService.reduceBudget(targetId, pct);
+        return {
+          success: true,
+          message: `已成功將【${res.name}】日預算由 ${res.oldBudgetDisplay} 調降至 ${res.newBudgetDisplay}（調降 ${res.percentage}%），節省約 ${res.savedDisplay} / 天。`,
+        };
+      }
+
       default:
         return { error: `未知工具: ${name}` };
     }
   } catch (err: any) {
     console.error(`❌ [AI Tool Error] 工具 ${name} 執行失敗:`, err.message);
-    return { error: err.message || 'Meta API 查詢失敗' };
+    let errMsg = err.message || 'Meta API 執行失敗';
+    if (errMsg.includes('permission') || errMsg.includes('OAuthException') || errMsg.includes('ads_management')) {
+      errMsg = `目前 Meta Access Token 缺少「ads_management（寫入/更新廣告）」權限。請在 Meta for Developers 將該 Token 增加 ads_management 權限後重新填入環境變數。`;
+    }
+    return { error: errMsg };
   }
 }
 
@@ -171,9 +253,9 @@ const SYSTEM_INSTRUCTION = `
    - 篇幅控制：手機好讀至上，字數精簡控制在 350 字內，直切問題核心與解法，嚴禁冗長廢話。
 4. 預設帳號環境：目前預設廣告帳號為【${runtimeState.currentAccountName}】(${runtimeState.currentAdAccountId})。
 5. 語音與風格：使用自然親切但具備專業行銷洞察的台灣繁體中文。
-6. 帳號切換權限與安全邊界 (Zero-Spend Guarantee)：
-   - 【完全具備切換權限】你「完全有權限」在已授權的多個廣告帳號間自由切換！當使用者提到「換帳號」、「切換到...」、「看DRWU」、「看微型社福」、「看蔚然頌缽」、「看生活用品」等時，你【必須】積極調用 switch_ad_account 工具為使用者切換目標帳號，絕不可回答「沒有權限切換帳號」！
-   - 【財務安全唯讀邊界】受限制的僅有前往 Meta Ads Manager「修改廣告預算金額、暫停/開啟廣告活動、發布廣告素材」等會產生扣款金流的寫入動作。若操盤手要求直接關閉廣告或調整預算，請引導其至 Meta 廣告後台手動操作。
+6. 帳號切換與止血操作權限：
+   - 【帳號切換權限】你「完全有權限」在已授權的多個廣告帳號間自由切換！當使用者提到「換帳號」、「切換到...」、「看DRWU」、「看微型社福」、「看生活用品」等時，你【必須】積極調用 switch_ad_account 工具為使用者切換目標帳號。
+   - 【止血與預算管理權限】當操盤手明確下達「暫停廣告」、「關閉素材」、「暫停活動」或「縮減預算 / 縮預算 20%」等止血指令時，你【具備執行權限】！請調用 pause_ad、pause_campaign 或 reduce_budget 工具為操盤手即時執行止血操作。執行完畢後請回報操作對象名稱、調整前後金額與節省幅度。
 `.trim();
 
 export class AIAgent {

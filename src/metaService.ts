@@ -124,6 +124,129 @@ export class MetaService {
     return data as T;
   }
 
+  public static async mutate<T>(
+    endpoint: string,
+    body: Record<string, any>
+  ): Promise<T> {
+    const apiVersion = config.meta.apiVersion;
+    const token = config.meta.accessToken;
+    if (!token) {
+      throw new Error('未設定 META_ACCESS_TOKEN');
+    }
+
+    const url = new URL(
+      endpoint.startsWith('http')
+        ? endpoint
+        : `https://graph.facebook.com/${apiVersion}/${endpoint.replace(/^\//, '')}`
+    );
+    url.searchParams.set('access_token', token);
+
+    const formData = new URLSearchParams();
+    for (const [key, val] of Object.entries(body)) {
+      formData.append(key, String(val));
+    }
+
+    const res = await fetch(url.toString(), {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error?.message || res.statusText);
+    }
+    return data as T;
+  }
+
+  /**
+   * 暫停指定廣告素材 (Pause Ad)
+   */
+  public static async pauseAd(adId: string, adName?: string): Promise<{ success: boolean; name: string; id: string }> {
+    const cleanId = adId.replace(/^(ad_|act_)/, '');
+    await this.mutate(`/${cleanId}`, { status: 'PAUSED' });
+    return { success: true, name: adName || cleanId, id: cleanId };
+  }
+
+  /**
+   * 暫停指定行銷活動 (Pause Campaign)
+   */
+  public static async pauseCampaign(campaignId: string, campaignName?: string): Promise<{ success: boolean; name: string; id: string }> {
+    const cleanId = campaignId.replace(/^(cmp_|act_)/, '');
+    await this.mutate(`/${cleanId}`, { status: 'PAUSED' });
+    return { success: true, name: campaignName || cleanId, id: cleanId };
+  }
+
+  /**
+   * 暫停指定廣告組合 (Pause AdSet)
+   */
+  public static async pauseAdSet(adSetId: string, adSetName?: string): Promise<{ success: boolean; name: string; id: string }> {
+    const cleanId = adSetId.replace(/^(adset_|act_)/, '');
+    await this.mutate(`/${cleanId}`, { status: 'PAUSED' });
+    return { success: true, name: adSetName || cleanId, id: cleanId };
+  }
+
+  /**
+   * 縮減預算 (Reduce Budget, 預設 20%)
+   * 支援 Campaign (CBO) 或 AdSet (ABO)
+   */
+  public static async reduceBudget(
+    targetId: string,
+    percentage: number = 0.2
+  ): Promise<{
+    success: boolean;
+    name: string;
+    id: string;
+    budgetType: 'daily' | 'lifetime';
+    oldBudgetDisplay: string;
+    newBudgetDisplay: string;
+    savedDisplay: string;
+    percentage: number;
+  }> {
+    const cleanId = targetId.replace(/^(act_|cmp_|adset_)/, '');
+    const details = await this.request<{
+      id: string;
+      name: string;
+      daily_budget?: string;
+      lifetime_budget?: string;
+    }>(`/${cleanId}`, { fields: 'id,name,daily_budget,lifetime_budget' });
+
+    let budgetField: 'daily_budget' | 'lifetime_budget' | null = null;
+    let oldVal = 0;
+
+    if (details.daily_budget && Number(details.daily_budget) > 0) {
+      budgetField = 'daily_budget';
+      oldVal = Number(details.daily_budget);
+    } else if (details.lifetime_budget && Number(details.lifetime_budget) > 0) {
+      budgetField = 'lifetime_budget';
+      oldVal = Number(details.lifetime_budget);
+    } else {
+      throw new Error(`目標【${details.name || cleanId}】未設置可縮減之預算（可能採用組合層級預算或無上限）。`);
+    }
+
+    const newVal = Math.round(oldVal * (1 - percentage));
+    if (newVal < 100) {
+      throw new Error(`縮減後預算過低，已觸發最低門檻風控保護，無法進一步調降。`);
+    }
+
+    await this.mutate(`/${cleanId}`, { [budgetField]: newVal });
+
+    const isSubunit = oldVal >= 100;
+    const oldDollars = isSubunit ? oldVal / 100 : oldVal;
+    const newDollars = isSubunit ? newVal / 100 : newVal;
+    const savedDollars = oldDollars - newDollars;
+
+    return {
+      success: true,
+      name: details.name || cleanId,
+      id: cleanId,
+      budgetType: budgetField === 'daily_budget' ? 'daily' : 'lifetime',
+      oldBudgetDisplay: `$${Math.round(oldDollars).toLocaleString()}`,
+      newBudgetDisplay: `$${Math.round(newDollars).toLocaleString()}`,
+      savedDisplay: `$${Math.round(savedDollars).toLocaleString()}`,
+      percentage: Math.round(percentage * 100),
+    };
+  }
+
+
   public static extractConversionDetails(
     actions?: Array<{ action_type: string; value: string }>,
     revenue = 0

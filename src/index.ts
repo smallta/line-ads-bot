@@ -1,7 +1,7 @@
 import express from 'express';
 import { middleware, messagingApi, WebhookEvent } from '@line/bot-sdk';
 import { config, runtimeState } from './config.js';
-import { handleTextMessage } from './handlers/messageHandler.js';
+import { handleTextMessage, handlePostbackEvent } from './handlers/messageHandler.js';
 import { FlexBuilder } from './formatters/flexBuilder.js';
 
 const app = express();
@@ -125,6 +125,12 @@ app.post('/callback', middleware(lineMiddlewareConfig), async (req, res) => {
           replyToken: event.replyToken,
           messages: [welcomeFlex],
         });
+      }
+      // 3. 處理按鈕回傳事件 (Postback: 一鍵暫停 / 一鍵縮預算)
+      else if (event.type === 'postback') {
+        console.log(`🔘 [Postback] 收到 postback 數據: "${event.postback.data}" (replyToken: ${event.replyToken})`);
+        await handlePostbackEvent(event.postback.data, event.replyToken, lineClient, senderId);
+        console.log(`✅ [Postback] 數據 "${event.postback.data}" 處理完成！`);
       }
     } catch (err: any) {
       console.error('❌ 處理 Webhook 事件失敗:', err.message, err.stack);

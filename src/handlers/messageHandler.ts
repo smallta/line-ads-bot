@@ -274,6 +274,56 @@ export async function handleTextMessage(
       return;
     }
 
+    // 指令 4.6: 暫停廣告 / 暫停活動 (如: 暫停廣告 23851... 或 暫停活動 23851...)
+    const pauseMatch = trimmed.match(/^暫停(廣告|素材|活動|行銷活動)?\s*([a-zA-Z0-9_]+)$/i);
+    if (pauseMatch) {
+      const type = pauseMatch[1] === '活動' || pauseMatch[1] === '行銷活動' ? 'campaign' : 'ad';
+      const targetId = pauseMatch[2];
+      if (type === 'campaign') {
+        const res = await MetaService.pauseCampaign(targetId);
+        const flex = FlexBuilder.buildOperationResultFlex({
+          title: '活動暫停止血',
+          actionType: 'pause',
+          targetName: res.name,
+          targetId: `cmp_${res.id}`,
+          detail1: '已發送 API 指令將活動設為 PAUSED',
+          detail2: '該活動下所有組合與素材已停止曝光扣款',
+        });
+        await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      } else {
+        const res = await MetaService.pauseAd(targetId);
+        const flex = FlexBuilder.buildOperationResultFlex({
+          title: '廣告暫停止血',
+          actionType: 'pause',
+          targetName: res.name,
+          targetId: `ad_${res.id}`,
+          detail1: '已發送 API 指令將素材設為 PAUSED',
+          detail2: 'Meta 廣告後台已停止該素材扣款',
+        });
+        await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      }
+      return;
+    }
+
+    // 指令 4.7: 縮減預算 / 縮預算 (如: 縮預算 23851... 或 縮減預算 23851... 20%)
+    const reduceMatch = trimmed.match(/^(縮減預算|縮預算|降預算|減預算)\s*([a-zA-Z0-9_]+)(?:\s*(\d+)%?)?$/i);
+    if (reduceMatch) {
+      const targetId = reduceMatch[2];
+      const pctNum = reduceMatch[3] ? parseInt(reduceMatch[3], 10) : 20;
+      const pct = pctNum / 100;
+      const res = await MetaService.reduceBudget(targetId, pct);
+      const flex = FlexBuilder.buildOperationResultFlex({
+        title: `預算調降 ${res.percentage}%`,
+        actionType: 'reduce_budget',
+        targetName: res.name,
+        targetId: `target_${res.id}`,
+        detail1: `日預算由 ${res.oldBudgetDisplay} ➔ ${res.newBudgetDisplay}`,
+        detail2: `成功縮減空間約 ${res.savedDisplay} / 天，降低風控虧損`,
+      });
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
     // 指令 5: 說明手冊
     if (/^(說明|help|\?|？|指令)$/i.test(trimmed)) {
       const helpFlex = FlexBuilder.buildHelpFlex(runtimeState.currentAccountName);
@@ -316,3 +366,107 @@ export async function handleTextMessage(
     ]);
   }
 }
+
+/**
+ * 處理 LINE Postback 互動按鈕點擊事件 (一鍵暫停 / 一鍵縮預算)
+ */
+export async function handlePostbackEvent(
+  data: string,
+  replyToken: string,
+  lineClient: messagingApi.MessagingApiClient,
+  userId?: string
+): Promise<void> {
+  try {
+    const allowedAdmins = (config.adminUserId || '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+
+    const isAuthorized = allowedAdmins.length === 0 || (userId && allowedAdmins.includes(userId));
+
+    if (!isAuthorized) {
+      console.warn(`🚨 [資安攔截] 阻擋來自未授權用戶 [${userId || '未知'}] 的 Postback 操作: "${data}"`);
+      await safeSendMessages(lineClient, replyToken, userId, [
+        {
+          type: 'text',
+          text: `🔒 權限受限：僅限授權管理員執行廣告暫停或預算調整操作。`,
+        },
+      ]);
+      return;
+    }
+
+    if (userId) {
+      lineClient.showLoadingAnimation({ chatId: userId, loadingSeconds: 20 }).catch(() => {});
+    }
+
+    const params = new URLSearchParams(data);
+    const action = params.get('action');
+    const id = params.get('id');
+    const rawName = params.get('name');
+    const name = rawName ? decodeURIComponent(rawName) : id || '';
+
+    if (action === 'pause_ad' && id) {
+      console.log(`🛑 [Postback Action] 執行暫停廣告: ${id} (${name})`);
+      const result = await MetaService.pauseAd(id, name);
+      const flex = FlexBuilder.buildOperationResultFlex({
+        title: '素材暫停止血',
+        actionType: 'pause',
+        targetName: result.name,
+        targetId: `ad_${result.id}`,
+        detail1: '已發送 API 指令將廣告設為 PAUSED',
+        detail2: 'Meta 廣告後台已停止該素材扣款與曝光',
+      });
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    if (action === 'pause_campaign' && id) {
+      console.log(`🛑 [Postback Action] 執行暫停活動: ${id} (${name})`);
+      const result = await MetaService.pauseCampaign(id, name);
+      const flex = FlexBuilder.buildOperationResultFlex({
+        title: '活動暫停止血',
+        actionType: 'pause',
+        targetName: result.name,
+        targetId: `cmp_${result.id}`,
+        detail1: '已發送 API 指令將整個行銷活動設為 PAUSED',
+        detail2: '該活動下所有組合與素材已全面停止曝光',
+      });
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    if (action === 'reduce_budget' && id) {
+      const percentStr = params.get('percent') || '20';
+      const percent = parseFloat(percentStr) / 100;
+      console.log(`📉 [Postback Action] 執行調降預算: ${id} (${name}), 幅度: ${percentStr}%`);
+      const result = await MetaService.reduceBudget(id, percent);
+      const flex = FlexBuilder.buildOperationResultFlex({
+        title: `預算調降 ${result.percentage}%`,
+        actionType: 'reduce_budget',
+        targetName: result.name,
+        targetId: `target_${result.id}`,
+        detail1: `日預算由 ${result.oldBudgetDisplay} ➔ ${result.newBudgetDisplay}`,
+        detail2: `成功縮減空間約 ${result.savedDisplay} / 天，降低風控虧損`,
+      });
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    await safeSendMessages(lineClient, replyToken, userId, [
+      { type: 'text', text: `⚠️ 未知的操作指令：${data}` },
+    ]);
+  } catch (err: any) {
+    console.error('❌ 執行 Postback 操作失敗:', err);
+    let errorMsg = err.message || '';
+    if (errorMsg.includes('permission') || errorMsg.includes('OAuthException') || errorMsg.includes('ads_management')) {
+      errorMsg = `權限不足：目前的 Meta Access Token 缺少「ads_management（寫入/更新廣告）」權限。\n\n請在 Meta for Developers 將該 Token 增加 ads_management 權限後重新填入環境變數。`;
+    }
+    await safeSendMessages(lineClient, replyToken, userId, [
+      {
+        type: 'text',
+        text: `❌ 操作失敗：\n${errorMsg}`,
+      },
+    ]);
+  }
+}
+

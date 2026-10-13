@@ -447,6 +447,19 @@ export class FlexBuilder {
                     wrap: true,
                     margin: 'xs' as const,
                   },
+                  {
+                    type: 'button' as const,
+                    action: {
+                      type: 'postback' as const,
+                      label: '🛑 一鍵暫停此廣告',
+                      data: `action=pause_ad&id=${f.adId}&name=${encodeURIComponent(f.adName)}`,
+                      displayText: `暫停廣告：${f.adName}`,
+                    },
+                    style: 'primary' as const,
+                    color: '#DC2626',
+                    height: 'sm' as const,
+                    margin: 'sm' as const,
+                  },
                 ],
               })),
             ],
@@ -568,6 +581,39 @@ export class FlexBuilder {
                 margin: 'xs',
                 contents: [
                   { type: 'text', text: `預算模式: ${c.budgetDesc}`, size: 'xxs', color: '#94A3B8', flex: 1, wrap: true },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                spacing: 'xs',
+                margin: 'sm',
+                contents: [
+                  {
+                    type: 'button',
+                    action: {
+                      type: 'postback',
+                      label: '📉 縮 20% 預算',
+                      data: `action=reduce_budget&id=${c.id}&type=campaign&percent=20&name=${encodeURIComponent(c.name)}`,
+                      displayText: `將活動「${c.name}」日預算縮減 20%`,
+                    },
+                    style: 'secondary',
+                    height: 'sm',
+                    flex: 1,
+                  },
+                  {
+                    type: 'button',
+                    action: {
+                      type: 'postback',
+                      label: '🛑 暫停活動',
+                      data: `action=pause_campaign&id=${c.id}&name=${encodeURIComponent(c.name)}`,
+                      displayText: `暫停活動：${c.name}`,
+                    },
+                    style: 'secondary',
+                    color: '#DC2626',
+                    height: 'sm',
+                    flex: 1,
+                  },
                 ],
               },
             ],
@@ -1830,6 +1876,148 @@ export class FlexBuilder {
     return {
       type: 'flex',
       altText,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 建立操作執行結果回執 Flex Message (暫停 / 縮預算)
+   */
+  public static buildOperationResultFlex(params: {
+    title: string;
+    actionType: 'pause' | 'reduce_budget';
+    targetName: string;
+    targetId: string;
+    detail1: string;
+    detail2?: string;
+    operator?: string;
+  }): messagingApi.FlexMessage {
+    const isPause = params.actionType === 'pause';
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: isPause ? '#991B1B' : '#047857',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'text',
+            text: isPause ? '🛑 廣告止血暫停成功' : '📉 廣告預算調降成功',
+            size: 'sm',
+            color: '#FFFFFF',
+            weight: 'bold',
+          },
+          {
+            type: 'text',
+            text: params.targetName,
+            size: 'md',
+            color: '#FFFFFF',
+            weight: 'bold',
+            wrap: true,
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: '#F8FAFC',
+            cornerRadius: '8px',
+            paddingAll: '12px',
+            contents: [
+              {
+                type: 'box',
+                layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: '目標識別碼', size: 'xs', color: '#64748B', flex: 2 },
+                  { type: 'text', text: params.targetId, size: 'xs', color: '#0F172A', weight: 'bold', flex: 4, align: 'end' },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                margin: 'sm',
+                contents: [
+                  { type: 'text', text: '執行狀態', size: 'xs', color: '#64748B', flex: 2 },
+                  {
+                    type: 'text',
+                    text: isPause ? '已暫停 (PAUSED)' : '已調降 (-20%)',
+                    size: 'xs',
+                    color: isPause ? '#DC2626' : '#059669',
+                    weight: 'bold',
+                    flex: 4,
+                    align: 'end',
+                  },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                margin: 'sm',
+                contents: [
+                  { type: 'text', text: '調整詳情', size: 'xs', color: '#64748B', flex: 2 },
+                  { type: 'text', text: params.detail1, size: 'xs', color: '#0F172A', weight: 'bold', flex: 4, align: 'end', wrap: true },
+                ],
+              },
+              ...(params.detail2
+                ? [
+                    {
+                      type: 'box',
+                      layout: 'horizontal',
+                      margin: 'sm',
+                      contents: [
+                        { type: 'text', text: '預計效果', size: 'xs', color: '#64748B', flex: 2 },
+                        { type: 'text', text: params.detail2, size: 'xs', color: '#059669', weight: 'bold', flex: 4, align: 'end', wrap: true },
+                      ],
+                    },
+                  ]
+                : []),
+            ],
+          },
+          {
+            type: 'text',
+            text: `操作時間：${new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei' })} ｜ 操作人：${params.operator || '管理員'}`,
+            size: 'xxs',
+            color: '#94A3B8',
+            margin: 'sm',
+            align: 'center',
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        paddingAll: '10px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '📊 看大盤', text: '看成效' },
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1E293B',
+            height: 'sm',
+            action: { type: 'message', label: '⚡ 查疲勞', text: '查疲勞' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `【操作成功】${params.title} - ${params.targetName}`,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }
