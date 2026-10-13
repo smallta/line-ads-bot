@@ -95,66 +95,204 @@ export interface CreativeMatrixItem {
   quadrant: 'winning' | 'vampire' | 'potential' | 'fatigued';
 }
 
+export interface TokenInfo {
+  token: string;
+  isWriteEnabled: boolean;
+  accessibleAccounts: Set<string>;
+}
+
+let tokenKeychain: TokenInfo[] | null = null;
+let lastProbeTime = 0;
+const PROBE_INTERVAL_MS = 20 * 60 * 1000;
+
 export class MetaService {
-  public static async request<T>(
-    endpoint: string,
-    params: Record<string, string | number> = {}
-  ): Promise<T> {
-    const apiVersion = config.meta.apiVersion;
-    const token = config.meta.accessToken;
-    if (!token) {
-      throw new Error('未設定 META_ACCESS_TOKEN');
+  /**
+   * 初始化與探測多 Token 鑰匙圈 (Multi-Token Keychain)
+   */
+  public static async getKeychain(force = false): Promise<TokenInfo[]> {
+    const now = Date.now();
+    if (!force && tokenKeychain && now - lastProbeTime < PROBE_INTERVAL_MS) {
+      return tokenKeychain;
     }
 
-    const url = new URL(
-      endpoint.startsWith('http')
-        ? endpoint
-        : `https://graph.facebook.com/${apiVersion}/${endpoint.replace(/^\//, '')}`
-    );
-    url.searchParams.set('access_token', token);
-    for (const [key, val] of Object.entries(params)) {
-      url.searchParams.set(key, String(val));
+    const rawTokens = (config.meta.accessTokens && config.meta.accessTokens.length > 0)
+      ? config.meta.accessTokens
+      : [config.meta.accessToken].filter(Boolean);
+
+    const list: TokenInfo[] = [];
+    for (const t of rawTokens) {
+      const info: TokenInfo = {
+        token: t,
+        isWriteEnabled: false,
+        accessibleAccounts: new Set(),
+      };
+      try {
+        // 1. 查詢該 Token 是否具備 ads_management 寫入權限
+        const permRes = await fetch(`https://graph.facebook.com/${config.meta.apiVersion}/me/permissions?access_token=${t}`);
+        const permData = await permRes.json();
+        if (permData.data) {
+          info.isWriteEnabled = permData.data.some((p: any) => p.permission === 'ads_management' && p.status === 'granted');
+        }
+
+        // 2. 查詢該 Token 能存取的所有廣告帳號
+        const accRes = await fetch(`https://graph.facebook.com/${config.meta.apiVersion}/me/adaccounts?fields=id,account_id&limit=100&access_token=${t}`);
+        const accData = await accRes.json();
+        if (accData.data) {
+          for (const a of accData.data) {
+            info.accessibleAccounts.add(a.id);
+            info.accessibleAccounts.add(`act_${a.account_id}`);
+            info.accessibleAccounts.add(String(a.account_id));
+          }
+        }
+      } catch (e: any) {
+        console.warn('⚠️ [MetaKeychain] 探測 Token 異常:', e.message);
+      }
+      list.push(info);
     }
 
-    const res = await fetch(url.toString());
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error?.message || res.statusText);
-    }
-    return data as T;
+    tokenKeychain = list;
+    lastProbeTime = now;
+    return list;
   }
 
-  public static async mutate<T>(
+  /**
+   * 智慧多 Token 查詢路由（自動匹配帳號權限與平滑容錯）
+   */
+  public static async request<T>(
     endpoint: string,
-    body: Record<string, any>
+    params: Record<string, string | number> = {},
+    tokenOverride?: string
   ): Promise<T> {
     const apiVersion = config.meta.apiVersion;
-    const token = config.meta.accessToken;
-    if (!token) {
-      throw new Error('未設定 META_ACCESS_TOKEN');
+    const keychain = await this.getKeychain();
+
+    // 擷取 endpoint 中的 accountId (如 /act_173149... 或 /act_4000...)
+    const actMatch = endpoint.match(/(act_\d+)/);
+    const targetAccountId = actMatch ? actMatch[1] : null;
+
+    let candidateTokens: string[] = [];
+    if (tokenOverride) {
+      candidateTokens = [tokenOverride];
+    } else if (targetAccountId) {
+      // 優先挑選已知具備該帳號存取權的 Token
+      const matching = keychain.filter((k) => k.accessibleAccounts.has(targetAccountId));
+      const others = keychain.filter((k) => !k.accessibleAccounts.has(targetAccountId));
+      candidateTokens = [...matching.map((m) => m.token), ...others.map((o) => o.token)];
+    } else {
+      candidateTokens = keychain.map((k) => k.token);
     }
 
-    const url = new URL(
-      endpoint.startsWith('http')
-        ? endpoint
-        : `https://graph.facebook.com/${apiVersion}/${endpoint.replace(/^\//, '')}`
-    );
-    url.searchParams.set('access_token', token);
-
-    const formData = new URLSearchParams();
-    for (const [key, val] of Object.entries(body)) {
-      formData.append(key, String(val));
+    if (candidateTokens.length === 0) {
+      candidateTokens = [config.meta.accessToken];
     }
 
-    const res = await fetch(url.toString(), {
-      method: 'POST',
-      body: formData,
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error?.message || res.statusText);
+    let lastError: any = null;
+    for (const token of candidateTokens) {
+      if (!token) continue;
+      try {
+        const url = new URL(
+          endpoint.startsWith('http')
+            ? endpoint
+            : `https://graph.facebook.com/${apiVersion}/${endpoint.replace(/^\//, '')}`
+        );
+        url.searchParams.set('access_token', token);
+        for (const [key, val] of Object.entries(params)) {
+          url.searchParams.set(key, String(val));
+        }
+
+        const res = await fetch(url.toString());
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error?.message || res.statusText);
+        }
+        return data as T;
+      } catch (err: any) {
+        lastError = err;
+        const msg = String(err.message || '');
+        // 若遇到權限不足或 OAuth 錯誤，自動嘗試鑰匙圈中的下一個 Token！
+        if (msg.includes('#200') || msg.includes('OAuthException') || msg.includes('permission') || msg.includes('access')) {
+          continue;
+        }
+        throw err;
+      }
     }
-    return data as T;
+
+    throw lastError || new Error('所有 Token 皆無法存取此資源');
+  }
+
+  /**
+   * 智慧多 Token 寫入路由（自動優先指派具備 ads_management 寫入權限之 Token）
+   */
+  public static async mutate<T>(
+    endpoint: string,
+    body: Record<string, any>,
+    tokenOverride?: string
+  ): Promise<T> {
+    const apiVersion = config.meta.apiVersion;
+    const keychain = await this.getKeychain();
+
+    // 擷取 endpoint 中的 accountId
+    const actMatch = endpoint.match(/(act_\d+)/);
+    const targetAccountId = actMatch ? actMatch[1] : null;
+
+    let candidateTokens: string[] = [];
+    if (tokenOverride) {
+      candidateTokens = [tokenOverride];
+    } else {
+      // 寫入動作必須優先挑選 isWriteEnabled: true 的 Token
+      const writeTokens = keychain.filter((k) => k.isWriteEnabled);
+      if (targetAccountId) {
+        const matchWrite = writeTokens.filter((k) => k.accessibleAccounts.has(targetAccountId));
+        const otherWrite = writeTokens.filter((k) => !k.accessibleAccounts.has(targetAccountId));
+        candidateTokens = [...matchWrite.map((m) => m.token), ...otherWrite.map((o) => o.token)];
+      } else {
+        candidateTokens = writeTokens.map((w) => w.token);
+      }
+      // 保底候補
+      const others = keychain.filter((k) => !k.isWriteEnabled).map((o) => o.token);
+      candidateTokens = [...candidateTokens, ...others];
+    }
+
+    if (candidateTokens.length === 0) {
+      candidateTokens = [config.meta.accessToken];
+    }
+
+    let lastError: any = null;
+    for (const token of candidateTokens) {
+      if (!token) continue;
+      try {
+        const url = new URL(
+          endpoint.startsWith('http')
+            ? endpoint
+            : `https://graph.facebook.com/${apiVersion}/${endpoint.replace(/^\//, '')}`
+        );
+        url.searchParams.set('access_token', token);
+
+        const formData = new URLSearchParams();
+        for (const [key, val] of Object.entries(body)) {
+          formData.append(key, String(val));
+        }
+
+        const res = await fetch(url.toString(), {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error?.message || res.statusText);
+        }
+        return data as T;
+      } catch (err: any) {
+        lastError = err;
+        const msg = String(err.message || '');
+        if (msg.includes('#200') || msg.includes('OAuthException') || msg.includes('permission') || msg.includes('ads_management')) {
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw lastError || new Error('所有 Token 皆無寫入權限或操作失敗');
   }
 
   /**
@@ -629,16 +767,31 @@ export class MetaService {
   }
 
   public static async listAccessibleAccounts(): Promise<Array<{ id: string; name: string; currency: string; statusLabel: string }>> {
-    const res = await this.request<{
-      data: Array<{ id: string; name: string; currency: string; account_status: number }>;
-    }>('/me/adaccounts?fields=id,name,currency,account_status&limit=50');
+    const keychain = await this.getKeychain();
+    const accountMap = new Map<string, { id: string; name: string; currency: string; statusLabel: string }>();
 
-    return (res.data || []).map((acc) => ({
-      id: acc.id,
-      name: acc.name,
-      currency: acc.currency,
-      statusLabel: acc.account_status === 1 ? 'ACTIVE' : `STATUS_${acc.account_status}`,
-    }));
+    for (const item of keychain) {
+      try {
+        const res = await this.request<{
+          data: Array<{ id: string; name: string; currency: string; account_status: number }>;
+        }>('/me/adaccounts?fields=id,name,currency,account_status&limit=100', {}, item.token);
+
+        for (const acc of res.data || []) {
+          if (!accountMap.has(acc.id)) {
+            accountMap.set(acc.id, {
+              id: acc.id,
+              name: acc.name,
+              currency: acc.currency,
+              statusLabel: acc.account_status === 1 ? 'ACTIVE' : `STATUS_${acc.account_status}`,
+            });
+          }
+        }
+      } catch (e: any) {
+        console.warn('⚠️ [listAccessibleAccounts] 查詢 Token 帳號略過:', e.message);
+      }
+    }
+
+    return Array.from(accountMap.values());
   }
 
   /**

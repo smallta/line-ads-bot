@@ -16,6 +16,7 @@ export interface BotConfig {
   port: number;
   meta: {
     accessToken: string;
+    accessTokens: string[];
     defaultAdAccountId: string;
     apiVersion: string;
   };
@@ -64,11 +65,31 @@ export const config: BotConfig = {
   },
   adminUserId: process.env.ADMIN_LINE_USER_ID,
   port: parseInt(process.env.PORT || '3000', 10),
-  meta: {
-    accessToken: process.env.META_ACCESS_TOKEN || '',
-    defaultAdAccountId: process.env.META_AD_ACCOUNT_ID || 'act_4000297516716904',
-    apiVersion: process.env.META_API_VERSION || 'v20.0',
-  },
+  meta: (() => {
+    const rawTokens = [
+      process.env.META_ACCESS_TOKEN,
+      process.env.META_ACCESS_TOKENS,
+      process.env.META_WRITE_ACCESS_TOKEN,
+    ]
+      .filter(Boolean)
+      .join(',');
+
+    const parsedTokens = [
+      ...new Set(
+        rawTokens
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => t.startsWith('EAA'))
+      ),
+    ];
+
+    return {
+      accessToken: parsedTokens[0] || process.env.META_ACCESS_TOKEN || '',
+      accessTokens: parsedTokens.length > 0 ? parsedTokens : [process.env.META_ACCESS_TOKEN || ''].filter(Boolean),
+      defaultAdAccountId: process.env.META_AD_ACCOUNT_ID || 'act_173149270766368',
+      apiVersion: process.env.META_API_VERSION || 'v20.0',
+    };
+  })(),
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
