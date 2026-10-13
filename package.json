@@ -9,7 +9,9 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "push-brief": "node dist/cron/pushMorningBrief.js",
-    "push-weekly": "node dist/cron/pushWeeklyReport.js"
+    "push-evening": "node dist/cron/pushEveningBrief.js",
+    "push-weekly": "node dist/cron/pushWeeklyReport.js",
+    "setup-richmenu": "node dist/setupRichMenu.js"
   },
   "dependencies": {
     "@line/bot-sdk": "^9.6.0",
