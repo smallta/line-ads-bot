@@ -324,6 +324,14 @@ export async function handleTextMessage(
       return;
     }
 
+    // 指令 4.8: 帳號健康大健檢 (健檢 / audit / 健康度 / 診斷)
+    if (/^(健檢|健康度|帳號健檢|健康檢查|體檢|audit|健檢報告)$/i.test(trimmed)) {
+      const audit = await MetaService.generateHealthAudit(runtimeState.currentAdAccountId);
+      const flex = FlexBuilder.buildHealthAuditFlex(audit);
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
     // 指令 5: 說明手冊
     if (/^(說明|help|\?|？|指令)$/i.test(trimmed)) {
       const helpFlex = FlexBuilder.buildHelpFlex(runtimeState.currentAccountName);

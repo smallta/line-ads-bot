@@ -1,5 +1,5 @@
 import { messagingApi } from '@line/bot-sdk';
-import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison, ConversionGoalType } from '../metaService.js';
+import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison, ConversionGoalType, HealthAuditResult } from '../metaService.js';
 
 export class FlexBuilder {
   /**
@@ -2018,6 +2018,227 @@ export class FlexBuilder {
     return {
       type: 'flex',
       altText: `【操作成功】${params.title} - ${params.targetName}`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 8. 建立帳號健康度體檢 (Ads Health Score 0-100) Flex Message
+   */
+  public static buildHealthAuditFlex(audit: HealthAuditResult): messagingApi.FlexMessage {
+    const gradeColors: Record<string, string> = {
+      A: '#059669', // 綠色
+      B: '#2563EB', // 藍色
+      C: '#D97706', // 黃橘色
+      D: '#EA580C', // 橘色
+      F: '#DC2626', // 紅色
+    };
+    const gradeLabels: Record<string, string> = {
+      A: '等級 A ‧ 卓越優良',
+      B: '等級 B ‧ 表現良好',
+      C: '等級 C ‧ 尚可微調',
+      D: '等級 D ‧ 存在警報',
+      F: '等級 F ‧ 高度虧損',
+    };
+
+    const headerColor = gradeColors[audit.grade] || '#1E293B';
+    const gradeText = gradeLabels[audit.grade] || `等級 ${audit.grade}`;
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: headerColor,
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '🏥 廣告帳號健康大健檢', size: 'xs', color: '#F1F5F9', weight: 'bold' },
+              { type: 'text', text: '近 7 天稽核', size: 'xs', color: '#CBD5E1', align: 'end' },
+            ],
+          },
+          {
+            type: 'text',
+            text: audit.accountName,
+            size: 'md',
+            color: '#FFFFFF',
+            weight: 'bold',
+            wrap: true,
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        paddingAll: '16px',
+        contents: [
+          // 核心評分展示區
+          {
+            type: 'box',
+            layout: 'horizontal',
+            alignItems: 'center',
+            backgroundColor: '#F8FAFC',
+            cornerRadius: '10px',
+            paddingAll: '14px',
+            contents: [
+              {
+                type: 'box',
+                layout: 'vertical',
+                flex: 3,
+                contents: [
+                  { type: 'text', text: '綜合健康評分', size: 'xxs', color: '#64748B' },
+                  {
+                    type: 'box',
+                    layout: 'horizontal',
+                    alignItems: 'baseline',
+                    contents: [
+                      { type: 'text', text: `${audit.score}`, size: 'xxl', weight: 'bold', color: headerColor },
+                      { type: 'text', text: ' / 100', size: 'xs', color: '#94A3B8', margin: 'xs' },
+                    ],
+                  },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                flex: 4,
+                backgroundColor: headerColor,
+                cornerRadius: '6px',
+                paddingAll: '8px',
+                alignItems: 'center',
+                contents: [
+                  { type: 'text', text: gradeText, size: 'xs', weight: 'bold', color: '#FFFFFF', wrap: true },
+                ],
+              },
+            ],
+          },
+
+          // 四大維度細部得分矩陣
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'sm',
+            spacing: 'xs',
+            contents: [
+              {
+                type: 'box',
+                layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: '⚡ 素材疲勞風控', size: 'xs', color: '#334155', flex: 3 },
+                  { type: 'text', text: `${audit.dimensions.fatigueRisk.score}/25`, size: 'xs', weight: 'bold', color: audit.dimensions.fatigueRisk.score >= 20 ? '#059669' : '#DC2626', align: 'end', flex: 1 },
+                  { type: 'text', text: audit.dimensions.fatigueRisk.detail, size: 'xs', color: '#64748B', align: 'end', flex: 4, wrap: true },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: '🏗️ 學習期與結構', size: 'xs', color: '#334155', flex: 3 },
+                  { type: 'text', text: `${audit.dimensions.budgetStructure.score}/25`, size: 'xs', weight: 'bold', color: audit.dimensions.budgetStructure.score >= 20 ? '#059669' : '#DC2626', align: 'end', flex: 1 },
+                  { type: 'text', text: audit.dimensions.budgetStructure.detail, size: 'xs', color: '#64748B', align: 'end', flex: 4, wrap: true },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: '💰 獲客經濟 ROI', size: 'xs', color: '#334155', flex: 3 },
+                  { type: 'text', text: `${audit.dimensions.economicsRoi.score}/25`, size: 'xs', weight: 'bold', color: audit.dimensions.economicsRoi.score >= 20 ? '#059669' : '#DC2626', align: 'end', flex: 1 },
+                  { type: 'text', text: audit.dimensions.economicsRoi.detail, size: 'xs', color: '#64748B', align: 'end', flex: 4, wrap: true },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: '🎯 點擊品質意圖', size: 'xs', color: '#334155', flex: 3 },
+                  { type: 'text', text: `${audit.dimensions.clickIntent.score}/25`, size: 'xs', weight: 'bold', color: audit.dimensions.clickIntent.score >= 20 ? '#059669' : '#DC2626', align: 'end', flex: 1 },
+                  { type: 'text', text: audit.dimensions.clickIntent.detail, size: 'xs', color: '#64748B', align: 'end', flex: 4, wrap: true },
+                ],
+              },
+            ],
+          },
+
+          // 核心檢查清單 (Passed & Warnings)
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'sm',
+            backgroundColor: '#F8FAFC',
+            cornerRadius: '8px',
+            paddingAll: '10px',
+            spacing: 'xs',
+            contents: [
+              ...(audit.passedChecks.slice(0, 2).map((p) => ({
+                type: 'text' as const,
+                text: `✅ ${p}`,
+                size: 'xxs' as const,
+                color: '#166534',
+                wrap: true,
+              }))),
+              ...(audit.failedChecks.slice(0, 2).map((f) => ({
+                type: 'text' as const,
+                text: `⚠️ ${f}`,
+                size: 'xxs' as const,
+                color: '#991B1B',
+                wrap: true,
+              }))),
+            ],
+          },
+
+          // 核心破局點建議
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'sm',
+            backgroundColor: '#EFF6FF',
+            cornerRadius: '8px',
+            paddingAll: '10px',
+            contents: [
+              { type: 'text', text: '💡 第一優先破局行動：', size: 'xs', weight: 'bold', color: '#1E40AF' },
+              { type: 'text', text: audit.topRecommendation, size: 'xs', color: '#1E3A8A', wrap: true, margin: 'xs' },
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        paddingAll: '10px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '⚡ 查疲勞', text: '查疲勞' },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🎯 查活動', text: '查活動' },
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1E293B',
+            height: 'sm',
+            action: { type: 'message', label: '📊 看大盤', text: '看成效' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `【帳號健檢報告】${audit.accountName} 獲評 ${audit.score} 分 (${gradeText})`,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }

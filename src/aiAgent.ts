@@ -131,6 +131,19 @@ const TOOL_DECLARATIONS = [
       required: ['targetId'],
     },
   },
+  {
+    name: 'run_health_audit',
+    description: '執行 Meta 廣告帳號的 0-100 分綜合健康大健檢 (Ads Health Score)，涵蓋素材疲勞風控、預算結構、獲客 ROI、點擊意圖與 A~F 級評等。當使用者要求健檢、診斷帳號或詢問健康度時調用。',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        accountNameOrId: {
+          type: 'STRING',
+          description: '廣告帳號名稱或 ID。若未指定則使用當前帳號。',
+        },
+      },
+    },
+  },
 ];
 
 // 解析帳號名稱或 ID（動態查詢全帳號庫與模糊比對）
@@ -220,6 +233,21 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
         return {
           success: true,
           message: `已成功將【${res.name}】日預算由 ${res.oldBudgetDisplay} 調降至 ${res.newBudgetDisplay}（調降 ${res.percentage}%），節省約 ${res.savedDisplay} / 天。`,
+        };
+      }
+
+      case 'run_health_audit': {
+        const { id, name: accName } = await resolveAccountId(args.accountNameOrId);
+        const audit = await MetaService.generateHealthAudit(id);
+        return {
+          targetAccount: accName,
+          accountId: id,
+          healthScore: audit.score,
+          grade: audit.grade,
+          dimensions: audit.dimensions,
+          passedChecks: audit.passedChecks,
+          failedChecks: audit.failedChecks,
+          topRecommendation: audit.topRecommendation,
         };
       }
 

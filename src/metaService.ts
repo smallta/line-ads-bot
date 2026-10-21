@@ -95,6 +95,23 @@ export interface CreativeMatrixItem {
   quadrant: 'winning' | 'vampire' | 'potential' | 'fatigued';
 }
 
+export interface HealthAuditResult {
+  score: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  accountName: string;
+  accountId: string;
+  currency: string;
+  dimensions: {
+    fatigueRisk: { score: number; maxScore: number; status: string; detail: string };
+    budgetStructure: { score: number; maxScore: number; status: string; detail: string };
+    economicsRoi: { score: number; maxScore: number; status: string; detail: string };
+    clickIntent: { score: number; maxScore: number; status: string; detail: string };
+  };
+  passedChecks: string[];
+  failedChecks: string[];
+  topRecommendation: string;
+}
+
 export interface TokenInfo {
   token: string;
   isWriteEnabled: boolean;
@@ -1073,5 +1090,164 @@ export class MetaService {
     });
 
     return { items, avgCtr, avgRoas, avgCpa, totalConversions, primaryMetric, conversionGoal };
+  }
+
+  /**
+   * 帳號綜合健康度大健檢 (Ads Health Audit & Score 0-100)
+   * 參考 claude-ads 權重稽核模型，涵蓋：
+   * 1. 素材疲勞與風控 (Fatigue & Risk, 25%)
+   * 2. 學習期與預算架構 (Structure & Learning, 25%)
+   * 3. 獲客經濟學與 ROI (Economics & ROI, 25%)
+   * 4. 點擊品質與漏斗意圖 (Click Quality & Intent, 25%)
+   */
+  public static async generateHealthAudit(accountId: string): Promise<HealthAuditResult> {
+    const cleanId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+    const [overview, fatigued, campaigns] = await Promise.all([
+      this.getAccountOverview(cleanId, 'last_7d'),
+      this.detectFatigue(cleanId),
+      this.listCampaigns(cleanId, 'last_7d', 10),
+    ]);
+
+    const passedChecks: string[] = [];
+    const failedChecks: string[] = [];
+
+    // --- 維度 1：素材疲勞與風控 (Fatigue & Risk, 滿分 25) ---
+    let fatigueScore = 25;
+    let fatigueDetail = '';
+    if (fatigued.length === 0) {
+      passedChecks.push('素材健康無疲勞：活躍素材均未觸發三選二衰退條件');
+      fatigueDetail = '0 支疲勞素材，續航力正常';
+    } else {
+      fatigueScore = Math.max(5, 25 - fatigued.length * 6);
+      failedChecks.push(`發現 ${fatigued.length} 支素材出現疲勞衰退 (頻率過高或CTR狂跌)`);
+      fatigueDetail = `${fatigued.length} 支素材需暫停或更換`;
+    }
+
+    // --- 維度 2：學習期與預算架構 (Structure & Learning, 滿分 25) ---
+    let structureScore = 25;
+    let structureDetail = '';
+    const activeCampaigns = campaigns.filter((c) => c.spend > 0);
+    const zeroConvCampaigns = activeCampaigns.filter((c) => c.conversions === 0 && c.spend > (overview.currency === 'USD' ? 50 : 1500));
+
+    if (zeroConvCampaigns.length === 0) {
+      passedChecks.push('預算效率優良：活躍行銷活動皆有產生有效轉換回傳');
+      structureDetail = `${activeCampaigns.length} 個主要活動運轉順暢`;
+    } else {
+      structureScore = Math.max(8, 25 - zeroConvCampaigns.length * 7);
+      failedChecks.push(`存在 ${zeroConvCampaigns.length} 個無轉換吸血活動（累積花費已超標）`);
+      structureDetail = `有 ${zeroConvCampaigns.length} 個活動需縮減預算止血`;
+    }
+
+    // 檢查預算集中度與活動數量
+    if (activeCampaigns.length > 8) {
+      structureScore = Math.max(5, structureScore - 4);
+      failedChecks.push('活動數量過度分散：容易導致學習期受限與出價互競');
+    } else if (activeCampaigns.length > 0) {
+      passedChecks.push('活動架構精簡集中：預算聚焦主力組合，利於演算法學習');
+    }
+
+    // --- 維度 3：獲客經濟學與 ROI (Economics & ROI, 滿分 25) ---
+    let roiScore = 20;
+    let roiDetail = '';
+    const isEcom = overview.conversionGoal === 'purchase';
+
+    if (isEcom) {
+      if (overview.roas >= 2.5) {
+        roiScore = 25;
+        passedChecks.push(`投資報酬率卓越：ROAS 達 ${overview.roas.toFixed(2)}x (高於標竿 2.0x)`);
+        roiDetail = `ROAS ${overview.roas.toFixed(2)}x 表現極佳`;
+      } else if (overview.roas >= 1.8) {
+        roiScore = 22;
+        passedChecks.push(`投報率穩定健康：ROAS ${overview.roas.toFixed(2)}x`);
+        roiDetail = `ROAS ${overview.roas.toFixed(2)}x 穩定運轉`;
+      } else if (overview.roas >= 1.2) {
+        roiScore = 16;
+        failedChecks.push(`投報率處於保本邊緣：ROAS ${overview.roas.toFixed(2)}x (建議檢視毛利與客單價)`);
+        roiDetail = `ROAS ${overview.roas.toFixed(2)}x 需提振客單價`;
+      } else {
+        roiScore = 8;
+        failedChecks.push(`投報率虧損警戒：ROAS 僅 ${overview.roas.toFixed(2)}x (未能打平廣告成本)`);
+        roiDetail = `ROAS ${overview.roas.toFixed(2)}x 嚴重虧損`;
+      }
+    } else {
+      // 導訊 / 名單獲客模式
+      if (overview.conversions > 15) {
+        roiScore = 25;
+        passedChecks.push(`有效名單獲客豐沛：近 7 天累積 ${overview.conversions} 筆${overview.unitLabel} (${overview.costLabel} $${overview.cpa.toFixed(0)})`);
+        roiDetail = `累積 ${overview.conversions} 筆，單則成本 $${overview.cpa.toFixed(0)}`;
+      } else if (overview.conversions > 0) {
+        roiScore = 19;
+        passedChecks.push(`維持穩定進單：近 7 天累積 ${overview.conversions} 筆${overview.unitLabel}`);
+        roiDetail = `累積 ${overview.conversions} 筆，成本 $${overview.cpa.toFixed(0)}`;
+      } else {
+        roiScore = 6;
+        failedChecks.push(`近 7 天無任何有效獲客：花費 $${overview.spend.toLocaleString()} 但轉換為 0`);
+        roiDetail = `0 筆轉換，建議重設受眾或著陸頁`;
+      }
+    }
+
+    // --- 維度 4：點擊品質與漏斗意圖 (Click Quality & Intent, 滿分 25) ---
+    let clickScore = 20;
+    let clickDetail = '';
+    if (overview.ctr >= 2.2) {
+      clickScore = 25;
+      passedChecks.push(`素材點擊吸睛度極高：大盤 CTR 達 ${overview.ctr.toFixed(2)}%`);
+      clickDetail = `CTR ${overview.ctr.toFixed(2)}% 吸睛力極佳`;
+    } else if (overview.ctr >= 1.5) {
+      clickScore = 22;
+      passedChecks.push(`點擊率高於業界常態：大盤 CTR ${overview.ctr.toFixed(2)}%`);
+      clickDetail = `CTR ${overview.ctr.toFixed(2)}% 表現良好`;
+    } else if (overview.ctr >= 0.9) {
+      clickScore = 16;
+      passedChecks.push(`點擊率落在常態區間：大盤 CTR ${overview.ctr.toFixed(2)}%`);
+      clickDetail = `CTR ${overview.ctr.toFixed(2)}% 尚可`;
+    } else {
+      clickScore = 8;
+      failedChecks.push(`素材點擊意圖低迷：大盤 CTR 僅 ${overview.ctr.toFixed(2)}% (文案前 3 秒無法抓住受眾)`);
+      clickDetail = `CTR ${overview.ctr.toFixed(2)}% 偏低需換新文案`;
+    }
+
+    if (overview.frequency > 3.8) {
+      clickScore = Math.max(5, clickScore - 4);
+      failedChecks.push(`受眾重複曝光過高：平均頻率達 ${overview.frequency.toFixed(1)} (受眾池飽和)`);
+    }
+
+    // 綜合總分與評級
+    const totalScore = Math.min(100, Math.max(0, fatigueScore + structureScore + roiScore + clickScore));
+    let grade: 'A' | 'B' | 'C' | 'D' | 'F' = 'C';
+    if (totalScore >= 90) grade = 'A';
+    else if (totalScore >= 80) grade = 'B';
+    else if (totalScore >= 70) grade = 'C';
+    else if (totalScore >= 60) grade = 'D';
+    else grade = 'F';
+
+    // 第一優先行動 (Top Blocker Recommendation)
+    let topRecommendation = '';
+    if (fatigued.length > 0) {
+      topRecommendation = `優先止血：建議立即使用 LINE 按鈕暫停 ${fatigued.length} 支疲勞素材，防止高頻轟炸拉高成本。`;
+    } else if (zeroConvCampaigns.length > 0) {
+      topRecommendation = `預算收縮：建議調降 ${zeroConvCampaigns[0].name} 日預算 20%，將資金挪往轉換穩定的組合。`;
+    } else if (overview.ctr < 1.0) {
+      topRecommendation = `素材破局：點擊率偏低，建議開闢新文案切角與短影音前 3 秒 Hook 測試。`;
+    } else {
+      topRecommendation = `乘勝追擊：帳號體質健康穩定，可針對 ROAS 領先之主力活動微調增加 15% 預算擴圈。`;
+    }
+
+    return {
+      score: totalScore,
+      grade,
+      accountName: overview.accountName,
+      accountId: cleanId,
+      currency: overview.currency,
+      dimensions: {
+        fatigueRisk: { score: fatigueScore, maxScore: 25, status: fatigueScore >= 20 ? '良好' : '警戒', detail: fatigueDetail },
+        budgetStructure: { score: structureScore, maxScore: 25, status: structureScore >= 20 ? '良好' : '待優化', detail: structureDetail },
+        economicsRoi: { score: roiScore, maxScore: 25, status: roiScore >= 20 ? '健康' : '偏低', detail: roiDetail },
+        clickIntent: { score: clickScore, maxScore: 25, status: clickScore >= 20 ? '優秀' : '待加強', detail: clickDetail },
+      },
+      passedChecks,
+      failedChecks,
+      topRecommendation,
+    };
   }
 }
