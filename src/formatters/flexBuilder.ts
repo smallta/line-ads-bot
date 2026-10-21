@@ -669,6 +669,7 @@ export class FlexBuilder {
             layout: 'vertical',
             spacing: 'sm',
             contents: [
+              { type: 'text', text: '🩺 輸入「健檢」➔ 0-100 廣告健康度大健檢 (四維評級與風控)', size: 'xs', color: '#0F172A', weight: 'bold' },
               { type: 'text', text: '📊 輸入「看週報」➔ WoW 環比趨勢與資本配置指引', size: 'xs', color: '#0F172A', weight: 'bold' },
               { type: 'text', text: '🛡️ 輸入「巡邏」➔ 16 帳號全域紅綠燈晨檢 (違規/休眠)', size: 'xs', color: '#0F172A', weight: 'bold' },
               { type: 'text', text: '🧛 輸入「素材象限」➔ 吸血鬼 vs 金牛素材四象限診斷', size: 'xs', color: '#0F172A', weight: 'bold' },
@@ -685,6 +686,12 @@ export class FlexBuilder {
         spacing: 'sm',
         paddingAll: '12px',
         contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🩺 健檢', text: '健檢' },
+          },
           {
             type: 'button',
             style: 'secondary',
