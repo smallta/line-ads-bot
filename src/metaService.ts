@@ -401,6 +401,53 @@ export class MetaService {
     };
   }
 
+  /**
+   * 重新啟動廣告素材 (Resume/Re-enable Ad)
+   */
+  public static async resumeAd(adId: string, adName?: string): Promise<{ success: boolean; name: string; id: string }> {
+    const cleanId = adId.replace(/^(ad_|act_)/, '');
+    await this.mutate(`/${cleanId}`, { status: 'ACTIVE' });
+    return { success: true, name: adName || cleanId, id: cleanId };
+  }
+
+  /**
+   * 重新啟動行銷活動 (Resume Campaign)
+   */
+  public static async resumeCampaign(campaignId: string, campaignName?: string): Promise<{ success: boolean; name: string; id: string }> {
+    const cleanId = campaignId.replace(/^(cmp_|act_)/, '');
+    await this.mutate(`/${cleanId}`, { status: 'ACTIVE' });
+    return { success: true, name: campaignName || cleanId, id: cleanId };
+  }
+
+  /**
+   * 重新啟動廣告組合 (Resume AdSet)
+   */
+  public static async resumeAdSet(adSetId: string, adSetName?: string): Promise<{ success: boolean; name: string; id: string }> {
+    const cleanId = adSetId.replace(/^(adset_|act_)/, '');
+    await this.mutate(`/${cleanId}`, { status: 'ACTIVE' });
+    return { success: true, name: adSetName || cleanId, id: cleanId };
+  }
+
+  /**
+   * 直接設定目標預算金額 (用於一鍵復原或指定金額調控)
+   */
+  public static async setBudget(
+    targetId: string,
+    rawAmount: number,
+    budgetField: 'daily_budget' | 'lifetime_budget' = 'daily_budget'
+  ): Promise<{ success: boolean; name: string; id: string; newBudgetDisplay: string }> {
+    const cleanId = targetId.replace(/^(act_|cmp_|adset_)/, '');
+    await this.mutate(`/${cleanId}`, { [budgetField]: Math.round(rawAmount) });
+    const isSubunit = rawAmount >= 100;
+    const dollars = isSubunit ? rawAmount / 100 : rawAmount;
+    return {
+      success: true,
+      name: cleanId,
+      id: cleanId,
+      newBudgetDisplay: `$${Math.round(dollars).toLocaleString()}`,
+    };
+  }
+
 
   public static extractConversionDetails(
     actions?: Array<{ action_type: string; value: string }>,

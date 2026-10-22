@@ -1,5 +1,6 @@
 import { messagingApi } from '@line/bot-sdk';
 import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison, ConversionGoalType, HealthAuditResult } from '../metaService.js';
+import { AutomationScanReport, RollbackResult, AuditLogRecord } from '../automation/types.js';
 
 export class FlexBuilder {
   /**
@@ -669,10 +670,12 @@ export class FlexBuilder {
             layout: 'vertical',
             spacing: 'sm',
             contents: [
+              { type: 'text', text: '🛡️ 輸入「自動風控」➔ 24hr 冷卻防震盪之自動止血巡檢', size: 'xs', color: '#0F172A', weight: 'bold' },
+              { type: 'text', text: '🧪 輸入「模擬風控」➔ 乾跑模擬，只產戰報不改動廣告', size: 'xs', color: '#0F172A' },
               { type: 'text', text: '🩺 輸入「健檢」➔ 0-100 廣告健康度大健檢 (四維評級與風控)', size: 'xs', color: '#0F172A', weight: 'bold' },
               { type: 'text', text: '📊 輸入「看週報」➔ WoW 環比趨勢與資本配置指引', size: 'xs', color: '#0F172A', weight: 'bold' },
-              { type: 'text', text: '🛡️ 輸入「巡邏」➔ 16 帳號全域紅綠燈晨檢 (違規/休眠)', size: 'xs', color: '#0F172A', weight: 'bold' },
-              { type: 'text', text: '🧛 輸入「素材象限」➔ 吸血鬼 vs 金牛素材四象限診斷', size: 'xs', color: '#0F172A', weight: 'bold' },
+              { type: 'text', text: '🛡️ 輸入「巡邏」➔ 16 帳號全域紅綠燈晨檢 (違規/休眠)', size: 'xs', color: '#0F172A' },
+              { type: 'text', text: '🧛 輸入「素材象限」➔ 吸血鬼 vs 金牛素材四象限診斷', size: 'xs', color: '#0F172A' },
               { type: 'text', text: '📈 輸入「看成效」➔ 調閱近7天花費與 ROAS 大盤', size: 'xs', color: '#0F172A' },
               { type: 'text', text: '⚡ 輸入「查疲勞」➔ 執行素材疲勞檢測', size: 'xs', color: '#0F172A' },
               { type: 'text', text: '🔄 輸入「換帳號」➔ 一鍵切換 16 個廣告帳號', size: 'xs', color: '#0F172A' },
@@ -2246,6 +2249,516 @@ export class FlexBuilder {
     return {
       type: 'flex',
       altText: `【帳號健檢報告】${audit.accountName} 獲評 ${audit.score} 分 (${gradeText})`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 11. 建立自動化風控巡檢報告 Flex Message
+   */
+  public static buildAutomationScanFlex(report: AutomationScanReport): messagingApi.FlexMessage {
+    const isDryRun = report.dryRun;
+    const modeBadge = isDryRun ? '🧪 模擬演練 (Dry-Run)' : '⚡ 實戰自動止血';
+    const modeBg = isDryRun ? '#3B82F6' : '#DC2626';
+
+    const itemBoxes: any[] = [];
+
+    if (report.results.length === 0) {
+      itemBoxes.push({
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#F0FDF4',
+        paddingAll: '14px',
+        cornerRadius: 'md',
+        borderWidth: '1px',
+        borderColor: '#DCFCE7',
+        contents: [
+          {
+            type: 'text',
+            text: '🎉 今日無失血或高風險異常！',
+            weight: 'bold',
+            size: 'sm',
+            color: '#16A34A',
+          },
+          {
+            type: 'text',
+            text: '所有進行中的行銷活動與素材轉換與投報均在安全閥值內，未觸發任何降預算或暫停規則。',
+            size: 'xxs',
+            color: '#4B5563',
+            wrap: true,
+            margin: 'xs',
+          },
+        ],
+      });
+    } else {
+      for (const res of report.results.slice(0, 5)) {
+        const isCooldown = res.inCooldown;
+        const targetTypeLabel = res.targetType === 'campaign' ? '活動' : res.targetType === 'adset' ? '組合' : '素材';
+        const cardBg = isCooldown ? '#F8FAFC' : res.executed ? '#FEF2F2' : '#FFFBEB';
+        const cardBorder = isCooldown ? '#E2E8F0' : res.executed ? '#FECACA' : '#FDE68A';
+        const statusColor = isCooldown ? '#64748B' : res.executed ? '#DC2626' : '#D97706';
+
+        const contents: any[] = [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: `【${targetTypeLabel}】${res.targetName}`,
+                weight: 'bold',
+                size: 'xs',
+                color: '#0F172A',
+                flex: 7,
+                wrap: true,
+              },
+              {
+                type: 'text',
+                text: isCooldown ? '🛡️ 冷卻保護' : res.executed ? '🛑 已執行止血' : isDryRun ? '🧪 模擬觸發' : '⚠️ 唯讀警報',
+                weight: 'bold',
+                size: 'xxs',
+                color: statusColor,
+                align: 'end',
+                flex: 4,
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: `觸發規則：${res.triggeredRule?.name || '安全風控'}`,
+            size: 'xxs',
+            color: '#475569',
+            weight: 'bold',
+            margin: 'xs',
+          },
+          {
+            type: 'text',
+            text: `原因：${res.reason}`,
+            size: 'xxs',
+            color: '#64748B',
+            wrap: true,
+            margin: 'xs',
+          },
+          {
+            type: 'text',
+            text: `動作：${res.actionDetail || res.suggestedAction}`,
+            size: 'xxs',
+            color: statusColor,
+            weight: 'bold',
+            wrap: true,
+            margin: 'xs',
+          },
+        ];
+
+        // 若有真實執行且具有 logId，附帶「一鍵復原」按鈕
+        if (res.executed && res.logId) {
+          contents.push({
+            type: 'box',
+            layout: 'horizontal',
+            margin: 'sm',
+            contents: [
+              {
+                type: 'button',
+                style: 'secondary',
+                height: 'sm',
+                color: '#475569',
+                action: {
+                  type: 'postback',
+                  label: '↩️ 一鍵復原原預算/重啟',
+                  data: `action=rollback_automation&logId=${res.logId}`,
+                  displayText: `復原自動化操作：${res.targetName}`,
+                },
+              },
+            ],
+          });
+        }
+
+        itemBoxes.push({
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: cardBg,
+          paddingAll: '10px',
+          cornerRadius: 'md',
+          borderWidth: '1px',
+          borderColor: cardBorder,
+          margin: 'sm',
+          contents,
+        });
+      }
+    }
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#0F172A',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: '🛡️ 自動風控哨兵巡檢',
+                weight: 'bold',
+                size: 'md',
+                color: '#FFFFFF',
+                flex: 6,
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                backgroundColor: modeBg,
+                cornerRadius: 'sm',
+                paddingStart: '6px',
+                paddingEnd: '6px',
+                paddingTop: '2px',
+                paddingBottom: '2px',
+                contents: [
+                  {
+                    type: 'text',
+                    text: modeBadge,
+                    size: 'xxs',
+                    color: '#FFFFFF',
+                    weight: 'bold',
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: `目標帳號：${report.accountName} (${report.accountId})`,
+            size: 'xxs',
+            color: '#94A3B8',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            backgroundColor: '#F1F5F9',
+            paddingAll: '10px',
+            cornerRadius: 'md',
+            contents: [
+              {
+                type: 'box',
+                layout: 'vertical',
+                alignItems: 'center',
+                flex: 1,
+                contents: [
+                  { type: 'text', text: '巡查對象', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${report.totalInspected}`, size: 'sm', weight: 'bold', color: '#0F172A' },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                alignItems: 'center',
+                flex: 1,
+                contents: [
+                  { type: 'text', text: '命中風控', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${report.triggeredCount}`, size: 'sm', weight: 'bold', color: report.triggeredCount > 0 ? '#DC2626' : '#16A34A' },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                alignItems: 'center',
+                flex: 1,
+                contents: [
+                  { type: 'text', text: '執行止血', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${report.executedCount}`, size: 'sm', weight: 'bold', color: '#DC2626' },
+                ],
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                alignItems: 'center',
+                flex: 1,
+                contents: [
+                  { type: 'text', text: '冷卻保護', size: 'xxs', color: '#64748B' },
+                  { type: 'text', text: `${report.cooldownSuppressedCount}`, size: 'sm', weight: 'bold', color: '#2563EB' },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: '📌 巡檢評估結果清單：',
+            weight: 'bold',
+            size: 'xs',
+            color: '#334155',
+            margin: 'md',
+          },
+          ...itemBoxes,
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        paddingAll: '12px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🧪 模擬巡檢', text: '模擬風控' },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            color: '#DC2626',
+            height: 'sm',
+            action: { type: 'message', label: '⚡ 執行風控', text: '自動風控' },
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1E293B',
+            height: 'sm',
+            action: { type: 'message', label: '📋 查看日誌', text: '風控紀錄' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `【自動化風控巡檢】${report.accountName} 檢查完成，命中 ${report.triggeredCount} 項風控`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 12. 建立一鍵復原回饋 Flex Message
+   */
+  public static buildRollbackResultFlex(result: RollbackResult): messagingApi.FlexMessage {
+    const isSuccess = result.success;
+    const headerBg = isSuccess ? '#059669' : '#DC2626';
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: headerBg,
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'text',
+            text: isSuccess ? '↩️ 操作已成功復原 (Rollback)' : '❌ 操作復原失敗',
+            weight: 'bold',
+            size: 'md',
+            color: '#FFFFFF',
+          },
+          {
+            type: 'text',
+            text: `目標：${result.targetName || result.targetId}`,
+            size: 'xxs',
+            color: '#E2E8F0',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'text',
+            text: result.message,
+            size: 'xs',
+            color: '#0F172A',
+            wrap: true,
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'md',
+            paddingAll: '10px',
+            backgroundColor: '#F8FAFC',
+            cornerRadius: 'md',
+            contents: [
+              {
+                type: 'text',
+                text: `日誌編號：${result.logId}`,
+                size: 'xxs',
+                color: '#64748B',
+              },
+              {
+                type: 'text',
+                text: `目標 ID：${result.targetId}`,
+                size: 'xxs',
+                color: '#64748B',
+                margin: 'xs',
+              },
+              {
+                type: 'text',
+                text: `狀態：${isSuccess ? '已恢復原設定並解除冷卻鎖定' : '未變更'}`,
+                size: 'xxs',
+                color: isSuccess ? '#16A34A' : '#DC2626',
+                weight: 'bold',
+                margin: 'xs',
+              },
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        paddingAll: '12px',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1E293B',
+            height: 'sm',
+            action: { type: 'message', label: '📊 立即查看成效', text: '看成效' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: isSuccess ? `【復原成功】已還原 ${result.targetName}` : `【復原失敗】${result.message}`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 13. 建立自動化審查日誌清單 Flex Message
+   */
+  public static buildAuditLogFlex(logs: AuditLogRecord[]): messagingApi.FlexMessage {
+    const logItems: any[] = [];
+
+    if (logs.length === 0) {
+      logItems.push({
+        type: 'text',
+        text: '目前尚無任何自動化風控執行紀錄。',
+        size: 'xs',
+        color: '#64748B',
+      });
+    } else {
+      for (const log of logs.slice(0, 6)) {
+        const timeStr = new Date(log.timestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+        logItems.push({
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: log.rolledBack ? '#F1F5F9' : '#FFFFFF',
+          paddingAll: '10px',
+          cornerRadius: 'md',
+          borderWidth: '1px',
+          borderColor: '#E2E8F0',
+          margin: 'sm',
+          contents: [
+            {
+              type: 'box',
+              layout: 'horizontal',
+              contents: [
+                {
+                  type: 'text',
+                  text: `${log.accountName} · ${log.targetName}`,
+                  weight: 'bold',
+                  size: 'xs',
+                  color: '#0F172A',
+                  flex: 7,
+                  wrap: true,
+                },
+                {
+                  type: 'text',
+                  text: log.rolledBack ? '↩️ 已復原' : log.isDryRun ? '🧪 模擬' : '✅ 已執行',
+                  weight: 'bold',
+                  size: 'xxs',
+                  color: log.rolledBack ? '#64748B' : log.isDryRun ? '#2563EB' : '#16A34A',
+                  align: 'end',
+                  flex: 3,
+                },
+              ],
+            },
+            {
+              type: 'text',
+              text: `時間：${timeStr} | 規則：${log.ruleName}`,
+              size: 'xxs',
+              color: '#64748B',
+              margin: 'xs',
+            },
+            {
+              type: 'text',
+              text: `動作：${log.actionTaken}`,
+              size: 'xxs',
+              color: '#334155',
+              wrap: true,
+              margin: 'xs',
+            },
+          ],
+        });
+      }
+    }
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#0F172A',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'text',
+            text: '📋 自動化風控審查日誌',
+            weight: 'bold',
+            size: 'md',
+            color: '#FFFFFF',
+          },
+          {
+            type: 'text',
+            text: `保留最近執行紀錄（共 ${logs.length} 筆）`,
+            size: 'xxs',
+            color: '#94A3B8',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: logItems,
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        paddingAll: '12px',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '⚡ 立即執行自動風控', text: '自動風控' },
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `【風控審查日誌】共 ${logs.length} 筆紀錄`,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }

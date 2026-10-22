@@ -6,6 +6,7 @@ import { pushMorningBrief } from '../cron/pushMorningBrief.js';
 import { pushWeeklyReport } from '../cron/pushWeeklyReport.js';
 import { AIAgent } from '../aiAgent.js';
 import { AccountManager } from '../accountManager.js';
+import { AutomationService } from '../automation/automationService.js';
 
 // 安全發送訊息器：優先使用免費 replyMessage，若遇逾時或 replyToken 失效則自動無縫改用 pushMessage 直達用戶
 async function safeSendMessages(
@@ -332,6 +333,30 @@ export async function handleTextMessage(
       return;
     }
 
+    // 指令 4.9A: 自動化風控巡檢 (真實執行)
+    if (/^(自動化|自動風控|風控巡檢|跑自動化|自動化巡檢|auto\s*scan|automation)$/i.test(trimmed)) {
+      const report = await AutomationService.runScan(runtimeState.currentAdAccountId, runtimeState.currentAccountName, false);
+      const flex = FlexBuilder.buildAutomationScanFlex(report);
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    // 指令 4.9B: 模擬風控 (Dry Run 乾跑演練)
+    if (/^(模擬風控|模擬巡檢|自動化模擬|模擬|dryrun|dry\s*run)$/i.test(trimmed)) {
+      const report = await AutomationService.runScan(runtimeState.currentAdAccountId, runtimeState.currentAccountName, true);
+      const flex = FlexBuilder.buildAutomationScanFlex(report);
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    // 指令 4.9C: 查看風控審查日誌
+    if (/^(風控紀錄|風控日誌|自動化紀錄|自動化日誌|日誌|audit\s*log|audit\s*logs)$/i.test(trimmed)) {
+      const logs = await AutomationService.getLogs(10);
+      const flex = FlexBuilder.buildAuditLogFlex(logs);
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
     // 指令 5: 說明手冊
     if (/^(說明|help|\?|？|指令)$/i.test(trimmed)) {
       const helpFlex = FlexBuilder.buildHelpFlex(runtimeState.currentAccountName);
@@ -456,6 +481,18 @@ export async function handlePostbackEvent(
         detail1: `日預算由 ${result.oldBudgetDisplay} ➔ ${result.newBudgetDisplay}`,
         detail2: `成功縮減空間約 ${result.savedDisplay} / 天，降低風控虧損`,
       });
+      await safeSendMessages(lineClient, replyToken, userId, [flex]);
+      return;
+    }
+
+    if (action === 'rollback_automation') {
+      const logId = params.get('logId');
+      if (!logId) {
+        throw new Error('未提供欲復原之日誌編號 (logId)');
+      }
+      console.log(`↩️ [Postback Action] 執行自動化操作復原: ${logId}`);
+      const rollbackResult = await AutomationService.rollbackAction(logId);
+      const flex = FlexBuilder.buildRollbackResultFlex(rollbackResult);
       await safeSendMessages(lineClient, replyToken, userId, [flex]);
       return;
     }

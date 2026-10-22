@@ -1,6 +1,7 @@
 import { config, runtimeState, KNOWN_ACCOUNTS } from './config.js';
 import { MetaService } from './metaService.js';
 import { AccountManager } from './accountManager.js';
+import { AutomationService } from './automation/automationService.js';
 
 // Gemini 函數調用 (Function Calling) 宣告
 const TOOL_DECLARATIONS = [
@@ -144,6 +145,23 @@ const TOOL_DECLARATIONS = [
       },
     },
   },
+  {
+    name: 'run_automation_scan',
+    description: '執行全自動風控哨兵巡檢 (Auto Bleed-Guard)，自動偵測零轉換失血活動、ROAS 崩跌與受眾疲勞，並依據 24 小時冷卻期保護自動執行調降 20% 預算或暫停止血。當使用者要求自動化巡檢、防暴衝或模擬風控時調用。',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        accountNameOrId: {
+          type: 'STRING',
+          description: '廣告帳號名稱或 ID。若未指定則使用當前帳號。',
+        },
+        dryRun: {
+          type: 'BOOLEAN',
+          description: '是否為模擬模式（true 為僅演算與產出戰報，不真正向 Meta API 寫入；false 為實戰執行止血）。',
+        },
+      },
+    },
+  },
 ];
 
 // 解析帳號名稱或 ID（動態查詢全帳號庫與模糊比對）
@@ -248,6 +266,31 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
           passedChecks: audit.passedChecks,
           failedChecks: audit.failedChecks,
           topRecommendation: audit.topRecommendation,
+        };
+      }
+
+      case 'run_automation_scan': {
+        const { id, name: accName } = await resolveAccountId(args.accountNameOrId);
+        const dryRun = Boolean(args.dryRun);
+        const report = await AutomationService.runScan(id, accName, dryRun);
+        return {
+          targetAccount: accName,
+          accountId: id,
+          dryRun: report.dryRun,
+          totalInspected: report.totalInspected,
+          triggeredCount: report.triggeredCount,
+          executedCount: report.executedCount,
+          cooldownSuppressedCount: report.cooldownSuppressedCount,
+          advisoryOnlyCount: report.advisoryOnlyCount,
+          resultsSummary: report.results.map((r) => ({
+            target: r.targetName,
+            type: r.targetType,
+            rule: r.triggeredRule?.name,
+            reason: r.reason,
+            action: r.actionDetail,
+            inCooldown: r.inCooldown,
+            executed: r.executed,
+          })),
         };
       }
 
