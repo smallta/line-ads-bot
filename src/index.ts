@@ -41,6 +41,22 @@ app.get('/logs', (req, res) => {
   res.type('text/plain; charset=utf-8').send(runtimeLogs.join('\n') || '尚無日誌記錄');
 });
 
+// 標準化 AI Studio / Gemini 3.1 Pro 診斷 JSON 報表端點 (支援 ?date=YYYY-MM-DD&account=DR.WU)
+app.get('/api/report', async (req, res) => {
+  try {
+    const { generateCleanedDiagnosticReport } = await import('./pipelineReport.js');
+    const payload = await generateCleanedDiagnosticReport({
+      date: typeof req.query.date === 'string' ? req.query.date : undefined,
+      account: typeof req.query.account === 'string' ? req.query.account : undefined,
+      targetRoas: typeof req.query.target_roas === 'string' ? Number(req.query.target_roas) : undefined,
+    });
+    res.json(payload);
+  } catch (err: any) {
+    console.error('❌ [/api/report] 產出清洗報表失敗:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 外部排程觸發端點 (用於定時喚醒與觸發晨報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
 app.all('/cron/push-brief', (req, res) => {
   console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行晨報推播...');
