@@ -87,6 +87,22 @@ app.all('/cron/push-evening', (req, res) => {
   });
 });
 
+// 外部排程觸發端點 (用於定時喚醒與觸發每日自動風控止血巡檢，支援 dryRun 參數)
+app.all('/cron/push-bleed-guard', (req, res) => {
+  const dryRun = req.query.dryRun === 'true';
+  console.log(`⏰ [External Trigger] 收到外部自動風控排程呼叫 (dryRun: ${dryRun})，立即回應 200...`);
+  res.status(200).send('OK');
+
+  setImmediate(async () => {
+    try {
+      await pushDailyBleedGuard({ dryRun, force: true });
+      console.log('✅ [External Trigger] 背景每日自動風控巡檢成功完成！');
+    } catch (err: any) {
+      console.error('❌ [External Trigger] 背景自動風控巡檢失敗:', err.message);
+    }
+  });
+});
+
 // 一鍵建立與更新圖文選單端點
 app.all('/setup-rich-menu', async (req, res) => {
   try {
@@ -142,6 +158,7 @@ import cron from 'node-cron';
 import { pushMorningBrief } from './cron/pushMorningBrief.js';
 import { pushEveningBrief } from './cron/pushEveningBrief.js';
 import { pushWeeklyReport } from './cron/pushWeeklyReport.js';
+import { pushDailyBleedGuard } from './cron/pushDailyBleedGuard.js';
 
 // 每日 09:00 (Asia/Taipei) 自動推播廣告成效晨報
 cron.schedule(
@@ -152,6 +169,22 @@ cron.schedule(
       await pushMorningBrief();
     } catch (err: any) {
       console.error('❌ [Cron] 晨報自動推播失敗:', err);
+    }
+  },
+  {
+    timezone: 'Asia/Taipei',
+  }
+);
+
+// 每日 15:00 (Asia/Taipei) 自動執行廣告風控止血巡檢與推播（已累積大半天花費，為晚間黃金時段及時止血）
+cron.schedule(
+  '0 15 * * *',
+  async () => {
+    console.log('⏰ [Cron] 觸發每日 15:00 廣告自動風控止血巡檢...');
+    try {
+      await pushDailyBleedGuard({ dryRun: false });
+    } catch (err: any) {
+      console.error('❌ [Cron] 每日自動風控巡檢失敗:', err);
     }
   },
   {

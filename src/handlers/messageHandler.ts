@@ -136,6 +136,16 @@ export async function handleTextMessage(
       return;
     }
 
+    // 指令 1.7: 手動測試或即時推播每日自動風控巡檢
+    if (/^(推播風控|發送風控|推播自動化|測試風控推播)$/i.test(trimmed)) {
+      await safeSendMessages(lineClient, replyToken, userId, [
+        { type: 'text', text: '🛡️ 正在為您即時執行並推播每日自動風控巡檢戰情卡片...' },
+      ]);
+      const { pushDailyBleedGuard } = await import('../cron/pushDailyBleedGuard.js');
+      await pushDailyBleedGuard({ force: true, dryRun: false });
+      return;
+    }
+
     // 指令 1.8: 週報 / 本週週報 / 看週報 / weekly (含 WoW 環比與資本配置指引)
     if (/^(週報|本週週報|看週報|查週報|每週報告|每週週報|weekly|weekly\s*report)$/i.test(trimmed)) {
       const [weeklyComp, campaigns, fatigued] = await Promise.all([
