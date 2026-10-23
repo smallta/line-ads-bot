@@ -63,6 +63,14 @@ export const runtimeState = {
   currentAccountName: matchedInitialAccount ? matchedInitialAccount.name : '一起夢想',
 };
 
+// 核心主力監控帳號清單（可由環境變數 CORE_ACCOUNTS=生鮮美食,悅姿醫美,一起夢想 自由覆蓋，預設包含醫美主力與公益）
+export const CORE_MONITORED_ACCOUNTS: string[] = (
+  process.env.CORE_ACCOUNTS || '生鮮美食,悅姿醫美,一起夢想'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export const config: BotConfig = {
   line: {
     channelSecret: process.env.LINE_CHANNEL_SECRET || '',

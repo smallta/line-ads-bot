@@ -1,5 +1,5 @@
 import { messagingApi } from '@line/bot-sdk';
-import { config, runtimeState } from '../config.js';
+import { config, runtimeState, CORE_MONITORED_ACCOUNTS } from '../config.js';
 import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
 import { generateCleanedDiagnosticReport } from '../pipelineReport.js';
@@ -9,7 +9,7 @@ import { AccountManager } from '../accountManager.js';
 let lastMorningBriefTimestamp = 0;
 let isBriefRunning = false;
 
-export async function pushMorningBrief(options: { force?: boolean } = {}) {
+export async function pushMorningBrief(options: { force?: boolean; account?: string } = {}) {
   const now = Date.now();
   const COOLDOWN_MS = 30 * 60 * 1000; // 30 分鐘防重複推播冷卻
 
@@ -48,58 +48,104 @@ export async function pushMorningBrief(options: { force?: boolean } = {}) {
       return;
     }
 
-    console.log(`🚀 正在向管理員名單 [${adminIds.join(', ')}] 推送每日廣告成效晨報...`);
     const lineClient = new messagingApi.MessagingApiClient({ channelAccessToken: token });
 
-    // 1. 抓取大盤數據
-    const metrics = await MetaService.getAccountOverview(runtimeState.currentAdAccountId, 'last_7d');
-    const overviewFlex = FlexBuilder.buildOverviewFlex(metrics);
+    // 確定本次要巡檢的帳號名單（若指定單一帳號則只跑該帳號，未指定則依序巡檢核心帳號名單）
+    const targetAccountInputs = options.account
+      ? [options.account]
+      : CORE_MONITORED_ACCOUNTS.length > 0
+        ? CORE_MONITORED_ACCOUNTS
+        : [runtimeState.currentAdAccountId];
 
-    // 2. 檢測是否有疲勞素材
-    const fatigued = await MetaService.detectFatigue(runtimeState.currentAdAccountId);
+    console.log(`🚀 正在依序巡檢核心帳號名單 [${targetAccountInputs.join(', ')}]...`);
 
-    const messages: messagingApi.Message[] = [overviewFlex];
-    if (fatigued.length > 0) {
-      console.log(`⚠️ 發現 ${fatigued.length} 支疲勞素材，附加警報卡片...`);
-      const fatigueFlex = FlexBuilder.buildFatigueFlex(fatigued, runtimeState.currentAccountName);
-      messages.push(fatigueFlex);
-    }
+    let pushedCount = 0;
 
-    // 3. 執行標準化清洗日報 (昨日 vs 7日基準線)：先附上「異常告警 Flex 卡片」，再附上「零星號樹狀根因與 P0/P1 動作」
-    try {
-      const cleanedPayload = await generateCleanedDiagnosticReport({
-        account: runtimeState.currentAdAccountId,
-      });
-      const diagnosticFlex = FlexBuilder.buildCleanedDiagnosticFlex(
-        cleanedPayload,
-        runtimeState.currentAccountName
-      );
-      messages.push(diagnosticFlex);
+    for (const accInput of targetAccountInputs) {
+      try {
+        const matchRes = await AccountManager.matchAndSwitchAccount(accInput);
+        const targetId = matchRes.account ? matchRes.account.id : runtimeState.currentAdAccountId;
+        const targetName = matchRes.account ? (matchRes.account.shortName || matchRes.account.name) : runtimeState.currentAccountName;
 
-      const aiDiagnosis = await AIAgent.generateMorningAiDiagnosis(
-        cleanedPayload,
-        runtimeState.currentAccountName
-      );
-      if (aiDiagnosis) {
-        messages.push({
-          type: 'text',
-          text: `🤖 【AI 顧問根因拆解與今日動作｜${cleanedPayload.report_date}】\n\n${aiDiagnosis}`,
+        console.log(`\n🔍 [巡檢中] 正在檢查【${targetName}】(${targetId}) 昨日花費...`);
+
+        // 1. 先跑清洗報告以確認昨日是否有花費
+        const cleanedPayload = await generateCleanedDiagnosticReport({
+          account: targetId,
         });
+
+        // 🌟 防轟炸鐵則：若昨日無花費 ($0)，自動靜默略過，不騷擾管理員
+        if (cleanedPayload.today_metrics.ad_spend === 0) {
+          console.log(`⏩ 【${targetName}】昨日花費為 $0（未投遞），自動略過推播。`);
+          continue;
+        }
+
+        console.log(
+          `🔥 【${targetName}】昨日有投遞（花費 $${cleanedPayload.today_metrics.ad_spend}），正在產出診斷與告警卡片...`
+        );
+
+        // 2. 抓取大盤與疲勞素材
+        const [metrics, fatigued] = await Promise.all([
+          MetaService.getAccountOverview(targetId, 'last_7d'),
+          MetaService.detectFatigue(targetId),
+        ]);
+
+        const messages: messagingApi.Message[] = [
+          FlexBuilder.buildOverviewFlex(metrics),
+        ];
+
+        if (fatigued.length > 0) {
+          console.log(`⚠️ 【${targetName}】發現 ${fatigued.length} 支疲勞素材，附加警報卡片...`);
+          messages.push(FlexBuilder.buildFatigueFlex(fatigued, targetName));
+        }
+
+        // 3. 附加「🚨 每日異常告警與基準比對」Flex 卡片
+        const diagnosticFlex = FlexBuilder.buildCleanedDiagnosticFlex(
+          cleanedPayload,
+          targetName
+        );
+        messages.push(diagnosticFlex);
+
+        // 4. 附加「🤖 AI 顧問根因拆解與今日 P0/P1 動作」純文字
+        try {
+          const aiDiagnosis = await AIAgent.generateMorningAiDiagnosis(
+            cleanedPayload,
+            targetName
+          );
+          if (aiDiagnosis) {
+            messages.push({
+              type: 'text',
+              text: `🤖 【AI 顧問根因拆解與今日動作｜${cleanedPayload.report_date}】\n\n${aiDiagnosis}`,
+            });
+          }
+        } catch (aiErr: any) {
+          console.warn(`⚠️ 【${targetName}】AI 清洗日報診斷生成略過:`, aiErr.message);
+        }
+
+        // 5. 推播至管理員 LINE
+        for (const adminId of adminIds) {
+          await lineClient.pushMessage({
+            to: adminId,
+            messages,
+          });
+        }
+
+        pushedCount++;
+        console.log(`✅ 【${targetName}】晨報與診斷卡片已成功推播至 LINE！`);
+
+        // 帳號間間隔 1.5 秒，確保 LINE API 頻率友善
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      } catch (accErr: any) {
+        console.error(`❌ 【${accInput}】巡檢過程發生錯誤:`, accErr.message);
       }
-    } catch (aiErr: any) {
-      console.warn('⚠️ [MorningBrief] AI 清洗日報診斷生成略過:', aiErr.message);
     }
 
-    for (const adminId of adminIds) {
-      await lineClient.pushMessage({
-        to: adminId,
-        messages,
-      });
-      console.log(`✅ 已送達管理員 [${adminId}] LINE 聊天室。`);
+    if (pushedCount === 0) {
+      console.log('ℹ️ 所有指定核心帳號昨日均無投遞花費 ($0)，今日無須發送推播。');
     }
 
     lastMorningBriefTimestamp = Date.now();
-    console.log('✅ 晨報推播程序全部完成！');
+    console.log(`\n✅ 每日晨報核心帳號巡檢全部完成！共推播 ${pushedCount} 個有花費之帳號。`);
   } catch (err: any) {
     console.error('❌ 推播過程發生錯誤：', err.message);
     throw err;
@@ -108,13 +154,10 @@ export async function pushMorningBrief(options: { force?: boolean } = {}) {
   }
 }
 
-// 支援命令列獨立執行 (例如 npm run push-brief 或 node dist/cron/pushMorningBrief.js --account=悅姿醫美)
+// 支援命令列獨立執行 (例如 npm run push-brief 或 node dist/cron/pushMorningBrief.js --account=生鮮美食)
 if (process.argv[1]?.endsWith('pushMorningBrief.js') || process.argv[1]?.endsWith('pushMorningBrief.ts')) {
   const accArg = process.argv.slice(2).find((a) => a.startsWith('--account='))?.split('=')[1];
   (async () => {
-    if (accArg) {
-      await AccountManager.matchAndSwitchAccount(accArg);
-    }
-    await pushMorningBrief({ force: true });
+    await pushMorningBrief({ force: true, account: accArg });
   })();
 }
