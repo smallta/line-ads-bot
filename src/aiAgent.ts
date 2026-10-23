@@ -493,9 +493,9 @@ export class AIAgent {
       const functionCalls = modelParts.filter((p: any) => p.functionCall);
 
       if (functionCalls.length === 0) {
-        // 沒有更多 Tool 調用，直接提取文字輸出
+        // 沒有更多 Tool 調用，直接提取文字輸出並清除 Markdown 星號
         const textParts = modelParts.filter((p: any) => p.text).map((p: any) => p.text);
-        return textParts.join('\n').trim();
+        return this.sanitizeForLineText(textParts.join('\n').trim());
       }
 
       // 平行非同步執行各個 Tool Call 並回填，大幅縮短響應時間
@@ -522,53 +522,71 @@ export class AIAgent {
   }
 
   /**
+   * 清洗 LINE 純文字輸出：徹底移除 **、#、` 等 Markdown 符號，確保手機閱讀乾淨無雜訊
+   */
+  public static sanitizeForLineText(raw: string): string {
+    return raw
+      .replace(/\*\*/g, '')
+      .replace(/__/g, '')
+      .replace(/`/g, '')
+      .replace(/^#{1,6}\s*/gm, '')
+      .replace(/^\s*\*\s+/gm, '• ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  /**
    * 根據清洗後的標準化 JSON Payload 產出每日晨報 AI 顧問診斷報告
-   * 嚴格遵循資深成效型廣告增長顧問之 Core Diagnosis Rules 與四大結構化區塊
+   * 配合 Flex 異常告警卡，文字專注於「零星號、樹狀排版」之根因拆解與 P0/P1 調整動作
    */
   public static async generateMorningAiDiagnosis(
     payload: DiagnosticReportPayload,
     accountName: string
   ): Promise<string> {
     const prompt = `
-# Role
-你是一位資深成效型廣告增長顧問與數據診斷專家。你的任務是審查【${accountName}】(${payload.report_date}) 的每日廣告數據，精準標記出異常指標，並提供符合商業邏輯的歸因推論與明確的具體操作建議（Action Items）。
+你是一位資深成效型廣告增長顧問。我們已經在上一張 LINE Flex 卡片中展示了【${accountName}】(${payload.report_date}) 的大盤數字與異常告警清單。
+現在請你根據下方 JSON 真實數據，輸出「極致好讀、完全無 Markdown 星號」的手機版【根因拆解與今日 P0/P1 調整動作】。
 
-# Core Diagnosis Rules (異常判定基準)
-1. **ROAS / CPA 波動**：
-   - 支出達到目標門檻（如花費 > 1.5x 目標/基準 CPA）但 0 轉化：標記為【嚴重浪費】。
-   - ROAS 較基準線下跌超過 20%（或醫美/公益帳號之 CPA/單則私訊成本較 7 日基準惡化超過 20%）：標記為【成效疲軟】。
-   - 注意產業屬性：若為醫美/私訊導向帳號（如悅姿醫美、生鮮美食/醫美），主轉換為私訊對話 (messaging_conversations)，嚴禁批評 ROAS 為 0，必須以 CPA（單則私訊成本）、CVR（點擊轉私訊率）與 CTR 進行診斷！
-2. **流量漏斗歸因邏輯**：
-   - **高 CTR（> 1.5%）+ 低 CVR（低於基準 30% 或低於 10%）**：優先歸因為「受眾期待落差、Messenger 破冰問題門檻太高（如高單價療程直接要求預約/留電）、落地頁載入慢或結帳障礙」，而非單純怪罪受眾。
-   - **低 CTR（< 0.8% 或較基準明顯下滑）+ 高 CPM / 頻次累積**：標記為「素材受眾審美疲勞或受眾競爭激烈」，建議更換前 3 秒視覺鉤子 (Hook) 切角或擴大受眾包。
-   - **CPC 突然飆升 > 30%**：檢查 CPM 是否同時上漲，判斷是「外部競價環境擠壓 (CPM 同步飆高)」還是「前端素材 CTR 下跌」導致。
-3. **預算花費節奏與規模**：
-   - 檢查 budget_info：若時間已過 70% 但花費進度不足 40%（或總走期預算消化明顯落後），標記為【出價或競價受限，預算無法消化】並換算建議日均配速。
-   - 若日預算過低（如 $300/日）導致單日點擊不足 25 次統計顯著量，標記為【日預算過低造成學習失真】。
+【嚴格排版鐵則（違反任一條即視為失敗）】
+1. 嚴禁使用任何 **（星號）、#（井字號）或 Markdown 語法！LINE 純文字不會渲染 Markdown，只能使用【】方括號、Emoji（🔴、🟡、🟢、▸）與樹狀符號（├、└）來凸顯重點。
+2. 每個活動之間必須空一行，數據請用「CTR 4.9%｜CVR 24.5%｜CPA $120」一行並列，每點控制在 1~2 行短句內。
+3. 針對醫美/私訊導向活動（如生鮮美食/醫美、悅姿醫美），嚴禁批評 ROAS 為 0，必須聚焦檢視：CPM 競價變化、CTR（前端鉤子吸睛度）、CVR（點擊轉私訊率：判斷 Messenger 破冰問答門檻是否太高）、單則私訊成本 (CPA) 與日預算/總走期配速。
 
-# Output Format Guidelines
-- 嚴禁空泛建議（如「建議優化文案」為無效回答；必須給出具體維度，如「調整前 3 秒痛點對比 Hook」、「將 Messenger 破冰按鈕從預約諮詢改為部位評估/案例查看」或明確的預算調整金額）。
-- 嚴格根植於下方 JSON 真實數據，禁止捏造未出現的數字。
-- 一律採用以下四個結構化區塊輸出（適合手機 LINE 閱讀，條理分明）：
+【請嚴格依照以下樹狀範本格式輸出】
+━━━━━━━━━━━━━━
+📊 一、總覽摘要
+━━━━━━━━━━━━━━
+• （1~2 句話點出昨日總花費、整體健康度與最關鍵矛盾）
 
-【總覽摘要 (Executive Summary)】
-（1-2 句話說明今日整體健康度、總花費、核心轉換數與 CPA/ROAS 表現）
+━━━━━━━━━━━━━━
+🔍 二、根因拆解
+━━━━━━━━━━━━━━
+🟢 【活動名稱 A】
+├ 競價與成本：CPM $XXX｜CPC $XX｜CPA $XX
+└ 漏斗診斷：CTR X.X% → CVR XX.X%，（1~2 句點出是前端視覺疲勞、還是後端 Messenger 破冰門檻/預算受限問題）
 
-【異常告警清單 (Critical Alerts)】
-（列出具體 Campaign 名稱與觸發的規則標籤與關鍵數據）
+🔴 【活動名稱 B】
+├ 競價與成本：CPM $XXX｜CPC $XX｜CPA $XX
+└ 漏斗診斷：CTR X.X% → CVR XX.X%，（1~2 句點出具體漏斗斷點）
 
-【根因拆解 (Root Cause)】
-（針對主力與異常活動，結合 CPM 外部競價 與 CTR/CVR 漏斗表現、日預算/總走期規模進行深度拆解）
+━━━━━━━━━━━━━━
+🎯 三、今日調整動作
+━━━━━━━━━━━━━━
+🔴 【P0 今日必做｜前端素材與破冰止血】
+▸ 【活動名稱】：具體動作標題
+  ├ 切角 A / 修改方向：（例如前 3 秒痛點 Hook 具體台詞，或將 Messenger 破冰按鈕從預約諮詢改為部位評估/案例查看）
+  └ 切角 B / 預期效果：（具體說明）
 
-【今日調整動作 (Immediate Actions)】
-- **優先級 P0（今日必做・前端素材或破冰漏斗止血）**：給出具體前 3 秒 Hook 切角或 Messenger 破冰問答修改方向。
-- **優先級 P1（明日執行・預算與走期配速管理）**：針對預算消化落後或日預算過低活動，給出具體調升/調降金額建議。
+🟡 【P1 明日執行｜預算與走期配速】
+▸ 【活動名稱】：具體預算調整建議
+  └ 操作細節：（結合日預算或走期消化進度，給出明確調整金額如由 $300 調升至 $450~$500）
 
-# 清洗後真實數據 JSON
+【真實數據 JSON】
 ${JSON.stringify(payload, null, 2)}
 `.trim();
 
-    return this.handleUserMessage(prompt);
+    const rawResponse = await this.handleUserMessage(prompt);
+    return this.sanitizeForLineText(rawResponse);
   }
 
   /**

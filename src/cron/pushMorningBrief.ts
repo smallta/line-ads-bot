@@ -65,11 +65,17 @@ export async function pushMorningBrief(options: { force?: boolean } = {}) {
       messages.push(fatigueFlex);
     }
 
-    // 3. 執行標準化清洗日報 (昨日 vs 7日基準線) 並由 Gemini 產出顧問診斷摘要
+    // 3. 執行標準化清洗日報 (昨日 vs 7日基準線)：先附上「異常告警 Flex 卡片」，再附上「零星號樹狀根因與 P0/P1 動作」
     try {
       const cleanedPayload = await generateCleanedDiagnosticReport({
         account: runtimeState.currentAdAccountId,
       });
+      const diagnosticFlex = FlexBuilder.buildCleanedDiagnosticFlex(
+        cleanedPayload,
+        runtimeState.currentAccountName
+      );
+      messages.push(diagnosticFlex);
+
       const aiDiagnosis = await AIAgent.generateMorningAiDiagnosis(
         cleanedPayload,
         runtimeState.currentAccountName
@@ -77,7 +83,7 @@ export async function pushMorningBrief(options: { force?: boolean } = {}) {
       if (aiDiagnosis) {
         messages.push({
           type: 'text',
-          text: `🤖 【AI 跨維度日報診斷｜${cleanedPayload.report_date}】\n${aiDiagnosis}`,
+          text: `🤖 【AI 顧問根因拆解與今日動作｜${cleanedPayload.report_date}】\n\n${aiDiagnosis}`,
         });
       }
     } catch (aiErr: any) {

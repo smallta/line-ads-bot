@@ -1,6 +1,7 @@
 import { messagingApi } from '@line/bot-sdk';
 import { OverviewMetrics, CampaignSummary, FatigueSummary, PatrolItem, CreativeMatrixItem, WeeklyComparison, ConversionGoalType, HealthAuditResult } from '../metaService.js';
 import { AutomationScanReport, RollbackResult, AuditLogRecord } from '../automation/types.js';
+import { DiagnosticReportPayload } from '../pipelineReport.js';
 
 export class FlexBuilder {
   /**
@@ -2759,6 +2760,222 @@ export class FlexBuilder {
     return {
       type: 'flex',
       altText: `【風控審查日誌】共 ${logs.length} 筆紀錄`,
+      contents: bubble,
+    } as any as messagingApi.FlexMessage;
+  }
+
+  /**
+   * 建立「昨日大盤 vs 7日基準 ＋ 活動異常告警清單」專屬 Flex 卡片
+   */
+  public static buildCleanedDiagnosticFlex(
+    payload: DiagnosticReportPayload,
+    accountName: string
+  ): messagingApi.FlexMessage {
+    const t = payload.today_metrics;
+    const b = payload.baseline_7d_avg;
+    const isMessagingOrLead = t.purchases === 0 && ((t.messaging_conversations || 0) > 0 || (t.leads || 0) > 0 || t.roas === 0);
+
+    const primaryCount =
+      t.purchases > 0 ? t.purchases : (t.messaging_conversations || 0) > 0 ? (t.messaging_conversations || 0) : (t.leads || 0);
+    const primaryLabel = t.purchases > 0 ? '購買數' : '私訊/諮詢數';
+
+    const campaignRows: any[] = payload.campaign_breakdown.slice(0, 6).map((c) => {
+      const isCritical =
+        c.note.includes('嚴重浪費') || c.note.includes('成效疲軟') || c.note.includes('CPC飆升');
+      const isWarning =
+        !isCritical &&
+        (c.note.includes('陷阱') ||
+          c.note.includes('受限') ||
+          c.note.includes('落後') ||
+          c.note.includes('疲勞') ||
+          c.note.includes('未達標'));
+
+      const badgeColor = isCritical ? '#DC2626' : isWarning ? '#D97706' : '#059669';
+      const bgColor = isCritical ? '#FEF2F2' : isWarning ? '#FFFBEB' : '#F0FDF4';
+      const statusIcon = isCritical ? '🔴' : isWarning ? '🟡' : '🟢';
+
+      const convCount = c.messaging_conversations || 0;
+      const metricLine = isMessagingOrLead
+        ? `花費 $${c.spend.toLocaleString()}｜CTR ${c.ctr}%｜CVR ${c.cvr}%｜私訊 ${convCount}則 (CPA $${c.cpa})`
+        : `花費 $${c.spend.toLocaleString()}｜ROAS ${c.roas}x｜CTR ${c.ctr}%｜CVR ${c.cvr}%`;
+
+      return {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: bgColor,
+        cornerRadius: '8px',
+        paddingAll: '10px',
+        margin: 'sm',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: `${statusIcon} ${c.name}`,
+                weight: 'bold',
+                size: 'sm',
+                color: '#0F172A',
+                wrap: true,
+                flex: 1,
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: metricLine,
+            size: 'xxs',
+            color: '#475569',
+            margin: 'xs',
+            wrap: true,
+          },
+          {
+            type: 'text',
+            text: c.note,
+            size: 'xxs',
+            color: badgeColor,
+            weight: 'bold',
+            margin: 'xs',
+            wrap: true,
+          },
+        ],
+      };
+    });
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#0F172A',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: '🚨 每日異常告警與基準比對',
+                size: 'xs',
+                color: '#38BDF8',
+                weight: 'bold',
+              },
+              {
+                type: 'text',
+                text: payload.report_date,
+                size: 'xs',
+                color: '#94A3B8',
+                align: 'end',
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: accountName,
+            size: 'lg',
+            color: '#FFFFFF',
+            weight: 'bold',
+            margin: 'xs',
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        spacing: 'sm',
+        contents: [
+          // 大盤 vs 7日基準區塊
+          {
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: '#F8FAFC',
+            cornerRadius: '10px',
+            paddingAll: '12px',
+            contents: [
+              {
+                type: 'text',
+                text: '📊 昨日大盤 vs 前 7 日基準均值',
+                size: 'xs',
+                weight: 'bold',
+                color: '#334155',
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                margin: 'sm',
+                contents: [
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: '昨日總花費', size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `$${t.ad_spend.toLocaleString()}`,
+                        size: 'md',
+                        weight: 'bold',
+                        color: '#0F172A',
+                      },
+                    ],
+                  },
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    flex: 1,
+                    contents: [
+                      { type: 'text', text: `${primaryLabel} / CPA`, size: 'xxs', color: '#64748B' },
+                      {
+                        type: 'text',
+                        text: `${primaryCount} 筆 / $${t.cpa}`,
+                        size: 'md',
+                        weight: 'bold',
+                        color: t.cpa > 0 && b.cpa > 0 && t.cpa > b.cpa * 1.2 ? '#DC2626' : '#059669',
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                type: 'text',
+                text: `7日基準：CPA $${b.cpa}｜CTR ${b.ctr}% (昨${t.ctr}%)｜CVR ${b.cvr}% (昨${t.cvr}%)｜CPM $${t.cpm}`,
+                size: 'xxs',
+                color: '#64748B',
+                margin: 'sm',
+                wrap: true,
+              },
+            ],
+          },
+          {
+            type: 'text',
+            text: `🚨 活動異常告警清單 (${payload.campaign_breakdown.length} 支活動)`,
+            size: 'xs',
+            weight: 'bold',
+            color: '#0F172A',
+            margin: 'md',
+          },
+          ...(campaignRows.length > 0
+            ? campaignRows
+            : [
+                {
+                  type: 'text',
+                  text: '🟢 昨日無投遞中活動或無異常告警',
+                  size: 'xs',
+                  color: '#64748B',
+                },
+              ]),
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `🚨【${accountName}】昨日異常告警與7日基準比對 (${payload.report_date})`,
       contents: bubble,
     } as any as messagingApi.FlexMessage;
   }
