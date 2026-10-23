@@ -50,14 +50,15 @@ export async function pushMorningBrief(options: { force?: boolean; account?: str
 
     const lineClient = new messagingApi.MessagingApiClient({ channelAccessToken: token });
 
-    // 確定本次要巡檢的帳號名單（若指定單一帳號則只跑該帳號，未指定則依序巡檢核心帳號名單）
+    // 依操盤手專注原則：每日晨報自動推播預設只推「當前單一主力帳號」（不連續轟炸多帳號）
+    // 其他帳號隨時可在 LINE 輸入「看一起夢想」、「看悅姿醫美」隨選調閱
     const targetAccountInputs = options.account
       ? [options.account]
-      : CORE_MONITORED_ACCOUNTS.length > 0
+      : process.env.MULTI_ACCOUNT_PATROL === 'true'
         ? CORE_MONITORED_ACCOUNTS
         : [runtimeState.currentAdAccountId];
 
-    console.log(`🚀 正在依序巡檢核心帳號名單 [${targetAccountInputs.join(', ')}]...`);
+    console.log(`🚀 正在產出目標帳號 [${targetAccountInputs.join(', ')}] 的每日成效晨報...`);
 
     let pushedCount = 0;
 
