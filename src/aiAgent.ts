@@ -554,4 +554,42 @@ ${JSON.stringify(payload)}
 
     return this.handleUserMessage(prompt);
   }
+
+  /**
+   * 根據本週 vs 上週 (WoW) 環比數據與活動排行，產出每週 AI 策略與預算配置診斷
+   */
+  public static async generateWeeklyAiDiagnosis(params: {
+    accountName: string;
+    current: any;
+    previous: any;
+    delta: any;
+    campaigns: any[];
+    fatiguedCount: number;
+  }): Promise<string> {
+    const prompt = `
+請根據以下【${params.accountName}】過去 7 天 vs 前一週 (WoW 環比) 的真實 Meta 廣告數據，產出每週策略復盤與下週資本配置建議。
+
+【嚴格判讀紀律（依產業屬性切換尺標：1.醫美私訊 > 3.公益捐款 > 2.電商ROAS）】
+- 若為醫美/諮詢導向活動（無電商購買 ROAS），嚴禁批評 ROAS 為 0，必須聚焦檢視：單則私訊/諮詢成本變化、CTR 點擊意圖、CPC 與各療程活動的花費效益比。
+- 若為公益或電商活動，聚焦檢視：CPA / ROAS 環比變化、主力活動是否出現邊際效益遞減或受眾疲勞（疲勞素材數：${params.fatiguedCount}）。
+
+【輸出格式要求】
+- 手機 LINE 閱讀極簡排版，總字數嚴格控制在 280 字以內。
+- 分為三點：
+  📈 **本週大盤 WoW 復盤**：1~2 句點出花費、點擊與核心轉換成本的週環比關鍵變化。
+  🔍 **活動強弱洗牌與矛盾**：點出本週表現最穩健的主力活動，以及哪支活動吃預算卻效益衰退。
+  💰 **下週預算重分配動作**：給出明確的加減碼比例或汰換疲勞素材建議。
+
+【本週 WoW 數據與活動排行 JSON】
+${JSON.stringify({
+  current_7d: params.current,
+  previous_7d: params.previous,
+  wow_delta_pct: params.delta,
+  top_campaigns_7d: params.campaigns,
+  fatigued_ads_count: params.fatiguedCount,
+})}
+`.trim();
+
+    return this.handleUserMessage(prompt);
+  }
 }

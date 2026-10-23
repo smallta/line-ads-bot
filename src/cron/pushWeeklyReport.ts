@@ -2,6 +2,7 @@ import { messagingApi } from '@line/bot-sdk';
 import { config, runtimeState } from '../config.js';
 import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
+import { AIAgent } from '../aiAgent.js';
 
 let lastWeeklyReportTimestamp = 0;
 let isWeeklyRunning = false;
@@ -65,10 +66,32 @@ export async function pushWeeklyReport(options: { force?: boolean } = {}) {
       weeklyComp.delta
     );
 
+    const messages: messagingApi.Message[] = [weeklyFlex];
+
+    // 3. 由 Gemini 產出本週 WoW 跨維度復盤與下週預算配置建議
+    try {
+      const weeklyAiText = await AIAgent.generateWeeklyAiDiagnosis({
+        accountName: runtimeState.currentAccountName,
+        current: weeklyComp.current,
+        previous: weeklyComp.prior,
+        delta: weeklyComp.delta,
+        campaigns,
+        fatiguedCount: fatigued.length,
+      });
+      if (weeklyAiText) {
+        messages.push({
+          type: 'text',
+          text: `🤖 【AI 本週策略復盤與下週配置建議】\n${weeklyAiText}`,
+        });
+      }
+    } catch (aiErr: any) {
+      console.warn('⚠️ [WeeklyReport] AI 週報診斷生成略過:', aiErr.message);
+    }
+
     for (const adminId of adminIds) {
       await lineClient.pushMessage({
         to: adminId,
-        messages: [weeklyFlex],
+        messages,
       });
       console.log(`✅ 每週廣告成效週報已送達管理員 [${adminId}] LINE 聊天室！`);
     }

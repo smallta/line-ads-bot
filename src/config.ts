@@ -52,10 +52,15 @@ export const KNOWN_ACCOUNTS: Record<string, { id: string; name: string; currency
   '悅姿': { id: 'act_838676849052863', name: '悅姿醫美診所', currency: 'TWD' },
 };
 
-// 狀態記憶體：記錄目前對話中選定的廣告帳號
+// 狀態記憶體：記錄目前對話中選定的廣告帳號（自動依 META_AD_ACCOUNT_ID 匹配正確帳號名稱，避免標題與數據錯置）
+const initialAdAccountId = process.env.META_AD_ACCOUNT_ID || 'act_173149270766368';
+const matchedInitialAccount = Object.values(KNOWN_ACCOUNTS).find(
+  (acc) => acc.id === initialAdAccountId
+);
+
 export const runtimeState = {
-  currentAdAccountId: process.env.META_AD_ACCOUNT_ID || 'act_4000297516716904',
-  currentAccountName: '一起夢想',
+  currentAdAccountId: initialAdAccountId,
+  currentAccountName: matchedInitialAccount ? matchedInitialAccount.name : '一起夢想',
 };
 
 export const config: BotConfig = {
