@@ -4,6 +4,7 @@ import { MetaService } from '../metaService.js';
 import { FlexBuilder } from '../formatters/flexBuilder.js';
 import { generateCleanedDiagnosticReport } from '../pipelineReport.js';
 import { AIAgent } from '../aiAgent.js';
+import { AccountManager } from '../accountManager.js';
 
 let lastMorningBriefTimestamp = 0;
 let isBriefRunning = false;
@@ -101,7 +102,13 @@ export async function pushMorningBrief(options: { force?: boolean } = {}) {
   }
 }
 
-// 支援命令列獨立執行 (例如 npm run push-brief)
+// 支援命令列獨立執行 (例如 npm run push-brief 或 node dist/cron/pushMorningBrief.js --account=悅姿醫美)
 if (process.argv[1]?.endsWith('pushMorningBrief.js') || process.argv[1]?.endsWith('pushMorningBrief.ts')) {
-  pushMorningBrief();
+  const accArg = process.argv.slice(2).find((a) => a.startsWith('--account='))?.split('=')[1];
+  (async () => {
+    if (accArg) {
+      await AccountManager.matchAndSwitchAccount(accArg);
+    }
+    await pushMorningBrief({ force: true });
+  })();
 }

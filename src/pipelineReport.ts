@@ -8,8 +8,11 @@ export interface DiagnosticReportPayload {
     ad_spend: number;
     revenue: number;
     roas: number;
+    cpm: number;
     cpc: number;
+    clicks: number;
     ctr: number;
+    cvr: number;
     purchases: number;
     cpa: number;
     aov: number;
@@ -21,8 +24,10 @@ export interface DiagnosticReportPayload {
   };
   baseline_7d_avg: {
     roas: number;
+    cpm: number;
     cpc: number;
     ctr: number;
+    cvr: number;
     cpa: number;
     aov: number;
     cost_per_messaging?: number;
@@ -32,10 +37,33 @@ export interface DiagnosticReportPayload {
     name: string;
     spend: number;
     roas: number;
-    frequency: number;
+    cpm: number;
+    cpc: number;
+    clicks: number;
     ctr: number;
+    cvr: number;
+    cpa: number;
+    frequency: number;
     messaging_conversations?: number;
     cost_per_messaging?: number;
+    leads?: number;
+    baseline_7d?: {
+      roas: number;
+      cpm: number;
+      cpc: number;
+      ctr: number;
+      cvr: number;
+      cpa: number;
+    };
+    budget_info?: {
+      daily_budget?: number;
+      lifetime_budget?: number;
+      budget_remaining?: number;
+      stop_time?: string;
+      days_remaining?: number;
+      time_elapsed_pct?: number;
+      budget_spent_pct?: number;
+    };
     note: string;
   }>;
 }
@@ -73,7 +101,11 @@ function resolveAccount(input?: string): string {
   const sanitize = (s: string) => s.toLowerCase().replace(/[\s._\-()【】]/g, '');
   const target = sanitize(clean);
   for (const [alias, info] of Object.entries(KNOWN_ACCOUNTS)) {
-    if (sanitize(alias) === target || sanitize(info.name) === target || sanitize(alias).includes(target)) {
+    if (
+      sanitize(alias) === target ||
+      sanitize(info.name) === target ||
+      sanitize(alias).includes(target)
+    ) {
       return info.id;
     }
   }
@@ -82,10 +114,8 @@ function resolveAccount(input?: string): string {
 }
 
 /**
- * 供 Render 雲端環境與晨報推播調用的標準化雙軌清洗報表產生器
- * 支援：1. 醫美/私訊導向 (messaging_conversations, cost_per_messaging)
- *       2. 公益/名單導向 (purchases/leads, cpa)
- *       3. 電商/購買導向 (roas, aov, cart_adds, checkout_initiated)
+ * 供 Render 雲端與晨報推播調用的深度診斷清洗報表產生器
+ * 完整涵蓋：CPM / CPC / CTR / CVR 漏斗歸因、1.5x CPA 嚴重浪費、CPC 飆升歸因、以及日預算/總走期預算消化進度
  */
 export async function generateCleanedDiagnosticReport(options: {
   date?: string;
@@ -109,7 +139,7 @@ export async function generateCleanedDiagnosticReport(options: {
   const fields =
     'campaign_id,campaign_name,date_start,date_stop,spend,impressions,clicks,frequency,actions,action_values';
 
-  const [accTodayRes, accBaseRes, campTodayRes, campBaseRes] = await Promise.all([
+  const [accTodayRes, accBaseRes, campTodayRes, campBaseRes, campMetaRes] = await Promise.all([
     MetaService.request<{ data: any[] }>(`/${accountId}/insights`, {
       level: 'account',
       fields,
@@ -133,6 +163,11 @@ export async function generateCleanedDiagnosticReport(options: {
       time_range: JSON.stringify({ since: baseStart, until: baseEnd }),
       limit: 500,
     }),
+    MetaService.request<{ data: any[] }>(`/${accountId}/campaigns`, {
+      fields:
+        'id,name,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,adsets{daily_budget,lifetime_budget,budget_remaining,start_time,stop_time}',
+      limit: 200,
+    }).catch(() => ({ data: [] })),
   ]);
 
   const calcRow = (row: any) => {
@@ -141,8 +176,11 @@ export async function generateCleanedDiagnosticReport(options: {
         ad_spend: 0,
         revenue: 0,
         roas: 0,
+        cpm: 0,
         cpc: 0,
+        clicks: 0,
         ctr: 0,
+        cvr: 0,
         purchases: 0,
         cpa: 0,
         aov: 0,
@@ -155,7 +193,7 @@ export async function generateCleanedDiagnosticReport(options: {
     }
     const spend = round2(safeNum(row.spend));
     const impressions = safeNum(row.impressions);
-    const clicks = safeNum(row.clicks);
+    const clicks = Math.round(safeNum(row.clicks));
     const purchases = Math.round(
       extractAction(row.actions, ['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase'])
     );
@@ -188,8 +226,11 @@ export async function generateCleanedDiagnosticReport(options: {
       ad_spend: spend,
       revenue,
       roas: safeDiv(revenue, spend),
+      cpm: safeDiv(spend, impressions, 1000),
       cpc: safeDiv(spend, clicks),
+      clicks,
       ctr: safeDiv(clicks, impressions, 100),
+      cvr: safeDiv(primaryConversions, clicks, 100),
       purchases,
       cpa: safeDiv(spend, primaryConversions),
       aov: safeDiv(revenue, purchases),
@@ -208,11 +249,13 @@ export async function generateCleanedDiagnosticReport(options: {
 
   const baseline_7d_avg =
     cnt === 0
-      ? { roas: 0, cpc: 0, ctr: 0, cpa: 0, aov: 0, cost_per_messaging: 0 }
+      ? { roas: 0, cpm: 0, cpc: 0, ctr: 0, cvr: 0, cpa: 0, aov: 0, cost_per_messaging: 0 }
       : {
           roas: safeDiv(baseList.reduce((s, r) => s + r.roas, 0), cnt),
+          cpm: safeDiv(baseList.reduce((s, r) => s + r.cpm, 0), cnt),
           cpc: safeDiv(baseList.reduce((s, r) => s + r.cpc, 0), cnt),
           ctr: safeDiv(baseList.reduce((s, r) => s + r.ctr, 0), cnt),
+          cvr: safeDiv(baseList.reduce((s, r) => s + r.cvr, 0), cnt),
           cpa: safeDiv(baseList.reduce((s, r) => s + r.cpa, 0), cnt),
           aov: safeDiv(baseList.reduce((s, r) => s + r.aov, 0), cnt),
           cost_per_messaging: safeDiv(
@@ -226,44 +269,138 @@ export async function generateCleanedDiagnosticReport(options: {
     if (r.campaign_id) baseCampMap.set(r.campaign_id, r);
   }
 
+  const campMetaMap = new Map<string, any>();
+  for (const c of campMetaRes.data || []) {
+    if (c.id) campMetaMap.set(c.id, c);
+  }
+
   const campaign_breakdown = (campTodayRes.data || []).map((row: any) => {
     const m = calcRow(row);
     const freq = round2(safeNum(row.frequency));
     const notes: string[] = [];
 
-    if (freq > 2.5) {
-      notes.push(`頻次過高(${freq}>2.5)，受眾可能疲勞`);
-    }
     const baseCamp = row.campaign_id ? calcRow(baseCampMap.get(row.campaign_id)) : null;
     const refRoas = baseCamp && baseCamp.roas > 0 ? baseCamp.roas : baseline_7d_avg.roas;
+    const refCpa = baseCamp && baseCamp.cpa > 0 ? baseCamp.cpa : baseline_7d_avg.cpa;
+    const refCvr = baseCamp && baseCamp.cvr > 0 ? baseCamp.cvr : baseline_7d_avg.cvr;
+    const refCtr = baseCamp && baseCamp.ctr > 0 ? baseCamp.ctr : baseline_7d_avg.ctr;
+    const refCpm = baseCamp && baseCamp.cpm > 0 ? baseCamp.cpm : baseline_7d_avg.cpm;
+    const refCpc = baseCamp && baseCamp.cpc > 0 ? baseCamp.cpc : baseline_7d_avg.cpc;
 
+    const primaryConversions =
+      m.purchases > 0 ? m.purchases : m.messaging_conversations > 0 ? m.messaging_conversations : m.leads;
+
+    // 規則 1: 支出達到目標門檻 (> 1.5x 基準 CPA) 但 0 轉化 -> 【嚴重浪費】
+    if (m.ad_spend > 0 && primaryConversions === 0 && refCpa > 0 && m.ad_spend >= refCpa * 1.5) {
+      notes.push(`【嚴重浪費】花費$${m.ad_spend}已超過1.5倍基準CPA($${refCpa})但0轉化`);
+    }
+
+    // 規則 2: ROAS 較基準線下跌超過 20% 或 CPA 較基準線惡化超過 20% -> 【成效疲軟】
     if (m.ad_spend > 0) {
-      if (refRoas > 0 && m.roas < refRoas * 0.7) {
+      if (refRoas > 0 && m.roas < refRoas * 0.8) {
         const dropPct = round2(((refRoas - m.roas) / refRoas) * 100);
-        notes.push(`ROAS異常跌落(當日${m.roas} vs 7日基準${refRoas}，跌幅${dropPct}%)`);
-      } else if (m.roas < targetRoas) {
-        const hasMessagingOrLead =
-          m.messaging_conversations > 0 ||
-          m.leads > 0 ||
-          (Array.isArray(row.actions) &&
-            row.actions.some((a: any) =>
-              [
-                'onsite_conversion.messaging_conversation_started_7d',
-                'onsite_conversion.total_messaging_connection',
-                'lead',
-                'post_engagement',
-              ].includes(a.action_type)
-            ));
-        if (m.roas === 0 && refRoas === 0 && hasMessagingOrLead) {
-          const msgInfo =
-            m.messaging_conversations > 0
-              ? `，當日私訊${m.messaging_conversations}則(單則$${m.cost_per_messaging})`
-              : '';
+        notes.push(`【成效疲軟】ROAS(${m.roas})較7日基準(${refRoas})下跌${dropPct}% (>20%)`);
+      } else if (refRoas === 0 && refCpa > 0 && m.cpa > refCpa * 1.2) {
+        const risePct = round2(((m.cpa - refCpa) / refCpa) * 100);
+        notes.push(`【成效疲軟】CPA($${m.cpa})較7日基準($${refCpa})飆升${risePct}% (>20%)`);
+      }
+    }
+
+    // 規則 3: 高 CTR (> 1.5%) + 低 CVR (較基準低 30% 以上，或點擊 >= 10 但 CVR < 10%)
+    if (
+      m.ctr > 1.5 &&
+      m.clicks >= 8 &&
+      ((refCvr > 0 && m.cvr < refCvr * 0.7) || (refCvr === 0 && m.cvr < 10))
+    ) {
+      notes.push(
+        `【高CTR+低CVR陷阱】CTR高達${m.ctr}%但CVR僅${m.cvr}%(7日基準${refCvr}%)，疑受眾期待落差、Messenger破冰門檻過高或落地頁障礙`
+      );
+    }
+
+    // 規則 4: 低 CTR (< 0.8%) + 高 CPM 或 Frequency > 2.5 -> 素材受眾疲勞
+    if (m.ctr > 0 && m.ctr < 0.8 && (refCpm === 0 || m.cpm >= refCpm)) {
+      notes.push(`【素材受眾疲勞/競價激烈】低CTR(${m.ctr}%<0.8%)+高CPM($${m.cpm})，建議換前3秒Hook或擴受眾`);
+    } else if (freq > 2.5) {
+      notes.push(`【頻次偏高】Frequency ${freq}>2.5，注意受眾審美疲勞`);
+    }
+
+    // 規則 5: CPC 突然飆升 > 30%，檢查 CPM 是否同步上漲
+    if (refCpc > 0 && m.cpc > refCpc * 1.3) {
+      const cpcRise = round2(((m.cpc - refCpc) / refCpc) * 100);
+      if (refCpm > 0 && m.cpm > refCpm * 1.15) {
+        notes.push(
+          `【CPC飆升+${cpcRise}%】由$${refCpc}漲至$${m.cpc}，主因為外部競價擠壓(CPM由$${refCpm}漲至$${m.cpm})`
+        );
+      } else {
+        notes.push(
+          `【CPC飆升+${cpcRise}%】由$${refCpc}漲至$${m.cpc}，CPM穩定($${m.cpm})，主因為素材CTR下滑(由${refCtr}%降至${m.ctr}%)`
+        );
+      }
+    }
+
+    // 規則 6: 解析預算與走期消化進度 (Budget Pacing)
+    const metaCamp = row.campaign_id ? campMetaMap.get(row.campaign_id) : undefined;
+    let budgetInfo:
+      | {
+          daily_budget?: number;
+          lifetime_budget?: number;
+          budget_remaining?: number;
+          stop_time?: string;
+          days_remaining?: number;
+          time_elapsed_pct?: number;
+          budget_spent_pct?: number;
+        }
+      | undefined;
+
+    if (metaCamp) {
+      const firstAdset = metaCamp.adsets?.data?.[0];
+      const rawDaily = safeNum(metaCamp.daily_budget) || safeNum(firstAdset?.daily_budget);
+      const rawLifetime = safeNum(metaCamp.lifetime_budget) || safeNum(firstAdset?.lifetime_budget);
+      const rawRemaining =
+        safeNum(metaCamp.budget_remaining) || safeNum(firstAdset?.budget_remaining);
+      const startTimeStr = metaCamp.start_time || firstAdset?.start_time;
+      const stopTimeStr = metaCamp.stop_time || firstAdset?.stop_time;
+
+      const dailyBudget = rawDaily >= 100 ? round2(rawDaily / 100) : rawDaily;
+      const lifetimeBudget = rawLifetime >= 100 ? round2(rawLifetime / 100) : rawLifetime;
+      const budgetRemaining = rawRemaining >= 100 ? round2(rawRemaining / 100) : rawRemaining;
+
+      budgetInfo = {};
+      if (dailyBudget > 0) {
+        budgetInfo.daily_budget = dailyBudget;
+        if (m.clicks > 0 && m.clicks < 25 && dailyBudget <= 400) {
           notes.push(
-            `互動/私訊導向活動(無電商ROAS${msgInfo}，CTR ${m.ctr}% / CPC $${m.cpc})`
+            `【日預算受限】日預算僅$${dailyBudget}(單日點擊${m.clicks}次<25次統計顯著量)，易導致演算法學習失真`
           );
-        } else {
-          notes.push(`ROAS未達標(當日${m.roas} < 目標${targetRoas})`);
+        }
+      }
+      if (lifetimeBudget > 0) {
+        budgetInfo.lifetime_budget = lifetimeBudget;
+        budgetInfo.budget_remaining = budgetRemaining;
+        const spentPct = round2(((lifetimeBudget - budgetRemaining) / lifetimeBudget) * 100);
+        budgetInfo.budget_spent_pct = spentPct;
+
+        if (startTimeStr && stopTimeStr) {
+          const startMs = new Date(startTimeStr).getTime();
+          const stopMs = new Date(stopTimeStr).getTime();
+          const nowMs = Date.now();
+          budgetInfo.stop_time = stopTimeStr.split('T')[0];
+          const daysRem = Math.max(0, round2((stopMs - nowMs) / 86400000));
+          budgetInfo.days_remaining = daysRem;
+
+          if (stopMs > startMs) {
+            const elapsedPct = Math.min(100, Math.max(0, round2(((nowMs - startMs) / (stopMs - startMs)) * 100)));
+            budgetInfo.time_elapsed_pct = elapsedPct;
+            if (elapsedPct >= 70 && spentPct < 40) {
+              notes.push(
+                `【出價或競價受限，預算無法消化】走期已過${elapsedPct}%但總預算($${lifetimeBudget})僅消耗${spentPct}%`
+              );
+            } else if (elapsedPct - spentPct >= 20) {
+              notes.push(
+                `【預算消化落後】總預算$${lifetimeBudget}(剩${daysRem}天)，走期已過${elapsedPct}%但預算僅消耗${spentPct}%`
+              );
+            }
+          }
         }
       }
     }
@@ -273,10 +410,27 @@ export async function generateCleanedDiagnosticReport(options: {
       name: row.campaign_name || 'Unnamed Campaign',
       spend: m.ad_spend,
       roas: m.roas,
-      frequency: freq,
+      cpm: m.cpm,
+      cpc: m.cpc,
+      clicks: m.clicks,
       ctr: m.ctr,
+      cvr: m.cvr,
+      cpa: m.cpa,
+      frequency: freq,
       messaging_conversations: m.messaging_conversations,
       cost_per_messaging: m.cost_per_messaging,
+      leads: m.leads,
+      baseline_7d: baseCamp
+        ? {
+            roas: baseCamp.roas,
+            cpm: baseCamp.cpm,
+            cpc: baseCamp.cpc,
+            ctr: baseCamp.ctr,
+            cvr: baseCamp.cvr,
+            cpa: baseCamp.cpa,
+          }
+        : undefined,
+      budget_info: budgetInfo && Object.keys(budgetInfo).length > 0 ? budgetInfo : undefined,
       note: notes.length > 0 ? notes.join('；') : '正常',
     };
   });
