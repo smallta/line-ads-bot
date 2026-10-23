@@ -1,6 +1,7 @@
 import { config, runtimeState, KNOWN_ACCOUNTS } from './config.js';
 import { MetaService } from './metaService.js';
 import { AccountManager } from './accountManager.js';
+import { generateCleanedDiagnosticReport, DiagnosticReportPayload } from './pipelineReport.js';
 import { AutomationService } from './automation/automationService.js';
 
 // Gemini 函數調用 (Function Calling) 宣告
@@ -162,6 +163,24 @@ const TOOL_DECLARATIONS = [
       },
     },
   },
+  {
+    name: 'get_daily_cleaned_report',
+    description:
+      '調閱指定日期（預設昨日）與前 7 日基準線對比的「標準化清洗日報 JSON」，涵蓋：1.醫美私訊數與單則私訊成本(cost_per_messaging)、2.公益/名單轉換成本(CPA)、3.電商漏斗(加購/結帳/購買/ROAS)及各活動異常診斷註記。當使用者詢問昨日表現、日報診斷、與7日基準線比較時優先調用。',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        accountNameOrId: {
+          type: 'STRING',
+          description: '廣告帳號名稱或 ID（如 生鮮美食、悅姿醫美、一起夢想、DR.WU）。若未指定則使用當前帳號。',
+        },
+        date: {
+          type: 'STRING',
+          description: '指定日期 (YYYY-MM-DD)，未填則預設為昨日。',
+        },
+      },
+    },
+  },
 ];
 
 // 解析帳號名稱或 ID（動態查詢全帳號庫與模糊比對）
@@ -291,6 +310,19 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
             inCooldown: r.inCooldown,
             executed: r.executed,
           })),
+        };
+      }
+
+      case 'get_daily_cleaned_report': {
+        const { id, name: accName } = await resolveAccountId(args.accountNameOrId);
+        const payload = await generateCleanedDiagnosticReport({
+          account: id,
+          date: args.date,
+        });
+        return {
+          targetAccount: accName,
+          accountId: id,
+          cleanedReport: payload,
         };
       }
 
@@ -487,5 +519,39 @@ export class AIAgent {
     }
 
     return '⚠️ 查詢步驟過於複雜，請嘗試簡化問題。';
+  }
+
+  /**
+   * 根據清洗後的標準化 JSON Payload 產出每日晨報 AI 顧問診斷摘要
+   * 嚴格遵循優先級：1. 醫美/私訊導向 > 3. 公益/捐款導向 > 2. 電商/購買導向
+   */
+  public static async generateMorningAiDiagnosis(
+    payload: DiagnosticReportPayload,
+    accountName: string
+  ): Promise<string> {
+    const prompt = `
+請根據以下已完成防除以零清洗與 7 日基準線對比的真實廣告數據 JSON，為【${accountName}】產出今日晨間 AI 操盤診斷摘要。
+
+【嚴格判讀紀律（依產業屬性切換尺標，禁止拿錯指標）】
+1. 第一優先（醫美／諮詢導向，如生鮮美食/醫美、悅姿醫美）：
+   - 若 purchases=0 且活動屬於互動/私訊導向，【嚴禁】批評 ROAS 為 0！
+   - 必須聚焦檢視：私訊數 (messaging_conversations)、單則私訊成本 (cost_per_messaging vs 7日均值)、點擊率 (CTR vs 7日均值)、CPC 漲跌幅與頻次 (Frequency 是否 > 2.5)。
+2. 第二優先（公益／捐款名單導向，如一起夢想、微型社福）：
+   - 聚焦檢視：單筆轉換/捐款成本 (CPA vs 7日均值)、CTR 點擊意圖與各活動花費配置。
+3. 第三優先（電商／購買導向，如 DR.WU、科懋、生活用品）：
+   - 聚焦檢視：ROAS vs 7日基準線與目標 (${payload.target_roas})、加購 (cart_adds) 到結帳 (checkout_initiated) 漏斗轉換、AOV 與高頻次疲勞活動。
+
+【輸出格式要求】
+- 手機 LINE 閱讀極簡排版，總字數嚴格控制在 260 字以內。
+- 分為三點：
+  📊 **昨日大盤 vs 7日基準**：1~2 句點出花費與核心指標變化。
+  ⚠️ **矛盾與異常抓漏**：點出哪支 Campaign 表現最佳或哪支有成本上揚/頻次偏高風險。
+  🎯 **今日具體動作**：給出 1~2 條可立即執行的預算或素材調整建議。
+
+【清洗後真實數據 JSON】
+${JSON.stringify(payload)}
+`.trim();
+
+    return this.handleUserMessage(prompt);
   }
 }

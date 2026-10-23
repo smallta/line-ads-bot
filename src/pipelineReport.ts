@@ -15,6 +15,9 @@ export interface DiagnosticReportPayload {
     aov: number;
     cart_adds: number;
     checkout_initiated: number;
+    messaging_conversations?: number;
+    cost_per_messaging?: number;
+    leads?: number;
   };
   baseline_7d_avg: {
     roas: number;
@@ -22,6 +25,7 @@ export interface DiagnosticReportPayload {
     ctr: number;
     cpa: number;
     aov: number;
+    cost_per_messaging?: number;
   };
   campaign_breakdown: Array<{
     campaign_id: string;
@@ -30,6 +34,8 @@ export interface DiagnosticReportPayload {
     roas: number;
     frequency: number;
     ctr: number;
+    messaging_conversations?: number;
+    cost_per_messaging?: number;
     note: string;
   }>;
 }
@@ -76,7 +82,10 @@ function resolveAccount(input?: string): string {
 }
 
 /**
- * 供 Render 雲端環境直接調用的標準化清洗報表產生器 (/api/report)
+ * 供 Render 雲端環境與晨報推播調用的標準化雙軌清洗報表產生器
+ * 支援：1. 醫美/私訊導向 (messaging_conversations, cost_per_messaging)
+ *       2. 公益/名單導向 (purchases/leads, cpa)
+ *       3. 電商/購買導向 (roas, aov, cart_adds, checkout_initiated)
  */
 export async function generateCleanedDiagnosticReport(options: {
   date?: string;
@@ -97,7 +106,8 @@ export async function generateCleanedDiagnosticReport(options: {
   const baseStart = fmt(new Date(y, m - 1, d - 7));
   const baseEnd = fmt(new Date(y, m - 1, d - 1));
 
-  const fields = 'campaign_id,campaign_name,date_start,date_stop,spend,impressions,clicks,frequency,actions,action_values';
+  const fields =
+    'campaign_id,campaign_name,date_start,date_stop,spend,impressions,clicks,frequency,actions,action_values';
 
   const [accTodayRes, accBaseRes, campTodayRes, campBaseRes] = await Promise.all([
     MetaService.request<{ data: any[] }>(`/${accountId}/insights`, {
@@ -138,6 +148,9 @@ export async function generateCleanedDiagnosticReport(options: {
         aov: 0,
         cart_adds: 0,
         checkout_initiated: 0,
+        messaging_conversations: 0,
+        cost_per_messaging: 0,
+        leads: 0,
       };
     }
     const spend = round2(safeNum(row.spend));
@@ -156,9 +169,20 @@ export async function generateCleanedDiagnosticReport(options: {
         'offsite_conversion.fb_pixel_initiate_checkout',
       ])
     );
+    const messaging = Math.round(
+      extractAction(row.actions, [
+        'onsite_conversion.messaging_conversation_started_7d',
+        'onsite_conversion.total_messaging_connection',
+      ])
+    );
+    const leads = Math.round(
+      extractAction(row.actions, ['lead', 'onsite_conversion.lead_grouped'])
+    );
     const revenue = round2(
       extractAction(row.action_values, ['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase'])
     );
+
+    const primaryConversions = purchases > 0 ? purchases : messaging > 0 ? messaging : leads;
 
     return {
       ad_spend: spend,
@@ -167,10 +191,13 @@ export async function generateCleanedDiagnosticReport(options: {
       cpc: safeDiv(spend, clicks),
       ctr: safeDiv(clicks, impressions, 100),
       purchases,
-      cpa: safeDiv(spend, purchases),
+      cpa: safeDiv(spend, primaryConversions),
       aov: safeDiv(revenue, purchases),
       cart_adds: cartAdds,
       checkout_initiated: checkouts,
+      messaging_conversations: messaging,
+      cost_per_messaging: safeDiv(spend, messaging),
+      leads,
     };
   };
 
@@ -181,13 +208,17 @@ export async function generateCleanedDiagnosticReport(options: {
 
   const baseline_7d_avg =
     cnt === 0
-      ? { roas: 0, cpc: 0, ctr: 0, cpa: 0, aov: 0 }
+      ? { roas: 0, cpc: 0, ctr: 0, cpa: 0, aov: 0, cost_per_messaging: 0 }
       : {
           roas: safeDiv(baseList.reduce((s, r) => s + r.roas, 0), cnt),
           cpc: safeDiv(baseList.reduce((s, r) => s + r.cpc, 0), cnt),
           ctr: safeDiv(baseList.reduce((s, r) => s + r.ctr, 0), cnt),
           cpa: safeDiv(baseList.reduce((s, r) => s + r.cpa, 0), cnt),
           aov: safeDiv(baseList.reduce((s, r) => s + r.aov, 0), cnt),
+          cost_per_messaging: safeDiv(
+            baseList.reduce((s, r) => s + (r.cost_per_messaging || 0), 0),
+            cnt
+          ),
         };
 
   const baseCampMap = new Map<string, any>();
@@ -212,18 +243,24 @@ export async function generateCleanedDiagnosticReport(options: {
         notes.push(`ROAS異常跌落(當日${m.roas} vs 7日基準${refRoas}，跌幅${dropPct}%)`);
       } else if (m.roas < targetRoas) {
         const hasMessagingOrLead =
-          Array.isArray(row.actions) &&
-          row.actions.some((a: any) =>
-            [
-              'onsite_conversion.messaging_conversation_started_7d',
-              'onsite_conversion.total_messaging_connection',
-              'lead',
-              'post_engagement',
-            ].includes(a.action_type)
-          );
+          m.messaging_conversations > 0 ||
+          m.leads > 0 ||
+          (Array.isArray(row.actions) &&
+            row.actions.some((a: any) =>
+              [
+                'onsite_conversion.messaging_conversation_started_7d',
+                'onsite_conversion.total_messaging_connection',
+                'lead',
+                'post_engagement',
+              ].includes(a.action_type)
+            ));
         if (m.roas === 0 && refRoas === 0 && hasMessagingOrLead) {
+          const msgInfo =
+            m.messaging_conversations > 0
+              ? `，當日私訊${m.messaging_conversations}則(單則$${m.cost_per_messaging})`
+              : '';
           notes.push(
-            `ROAS為0 (<目標${targetRoas})【註：此為互動/私訊/名單導向活動，無電商購買回傳，應以CTR(${m.ctr}%)/CPC($${m.cpc})與諮詢成本評估】`
+            `互動/私訊導向活動(無電商ROAS${msgInfo}，CTR ${m.ctr}% / CPC $${m.cpc})`
           );
         } else {
           notes.push(`ROAS未達標(當日${m.roas} < 目標${targetRoas})`);
@@ -238,6 +275,8 @@ export async function generateCleanedDiagnosticReport(options: {
       roas: m.roas,
       frequency: freq,
       ctr: m.ctr,
+      messaging_conversations: m.messaging_conversations,
+      cost_per_messaging: m.cost_per_messaging,
       note: notes.length > 0 ? notes.join('；') : '正常',
     };
   });
