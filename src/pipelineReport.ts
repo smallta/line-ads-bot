@@ -1,8 +1,9 @@
-import { config, KNOWN_ACCOUNTS } from './config.js';
+import { config, KNOWN_ACCOUNTS, getAccountIndustry, IndustryType } from './config.js';
 import { MetaService } from './metaService.js';
 
 export interface DiagnosticReportPayload {
   report_date: string;
+  industry: IndustryType;
   target_roas: number;
   today_metrics: {
     ad_spend: number;
@@ -274,6 +275,8 @@ export async function generateCleanedDiagnosticReport(options: {
     if (c.id) campMetaMap.set(c.id, c);
   }
 
+  const industry = getAccountIndustry(accountId);
+
   const campaign_breakdown = (campTodayRes.data || []).map((row: any) => {
     const m = calcRow(row);
     const freq = round2(safeNum(row.frequency));
@@ -290,14 +293,26 @@ export async function generateCleanedDiagnosticReport(options: {
     const primaryConversions =
       m.purchases > 0 ? m.purchases : m.messaging_conversations > 0 ? m.messaging_conversations : m.leads;
 
-    // 規則 1: 支出達到目標門檻 (> 1.5x 基準 CPA) 但 0 轉化 -> 【嚴重浪費】
-    if (m.ad_spend > 0 && primaryConversions === 0 && refCpa > 0 && m.ad_spend >= refCpa * 1.5) {
-      notes.push(`【嚴重浪費】花費$${m.ad_spend}已超過1.5倍基準CPA($${refCpa})但0轉化`);
-    }
+    const campName = row.campaign_name || '';
 
-    // 規則 2: ROAS 較基準線下跌超過 20% 或 CPA 較基準線惡化超過 20% -> 【成效疲軟】
-    if (m.ad_spend > 0) {
-      if (refRoas > 0 && m.roas < refRoas * 0.8) {
+    // ==========================================
+    // 核心判定基準 (Level 3 Engine)
+    // ==========================================
+
+    // 1. 統計顯著性閘門（全產業通用・防誤殺）
+    // 若單日花費 < 2x 目標 CPA，或單日連結點擊數 < 25 次：一律標記為【觀察中（小樣本波動）】，嚴禁觸發 P0 緊急停用或成效疲軟警報。
+    const targetCpaThreshold = refCpa > 0 ? refCpa * 2 : 500;
+    const isSmallSample = m.ad_spend > 0 && (m.ad_spend < targetCpaThreshold || m.clicks < 25);
+
+    if (isSmallSample) {
+      notes.push(
+        `【觀察中（小樣本波動）】單日花費$${m.ad_spend}<$${Math.round(targetCpaThreshold)}或點擊${m.clicks}<25次，嚴禁觸發P0停用或疲軟警報`
+      );
+    } else if (m.ad_spend > 0) {
+      // 通過統計閘門後才判定：嚴重浪費或成效疲軟
+      if (primaryConversions === 0 && refCpa > 0 && m.ad_spend >= refCpa * 1.5) {
+        notes.push(`【P0 警報：嚴重浪費】花費$${m.ad_spend}已超過1.5倍基準CPA($${refCpa})但0轉化`);
+      } else if (refRoas > 0 && m.roas < refRoas * 0.8) {
         const dropPct = round2(((refRoas - m.roas) / refRoas) * 100);
         notes.push(`【成效疲軟】ROAS(${m.roas})較7日基準(${refRoas})下跌${dropPct}% (>20%)`);
       } else if (refRoas === 0 && refCpa > 0 && m.cpa > refCpa * 1.2) {
@@ -306,34 +321,54 @@ export async function generateCleanedDiagnosticReport(options: {
       }
     }
 
-    // 規則 3: 高 CTR (> 1.5%) + 低 CVR (較基準低 30% 以上，或點擊 >= 10 但 CVR < 10%)
+    // 2. 產業專屬心智與歸因模組 (Industry Matrix)
+    if (industry === 'medical_aesthetics') {
+      const isHighTicket = /精靈針|電波|音波|童顏|拉提|抗老|微整|鳳凰|索夫波|艾麗斯|舒顏卒|Sculptra|AestheFill/i.test(campName);
+      const isEntryProduct = /熊貓針|除皺|肉毒|雷射|光療|皮秒|體態|淨膚|水飛梭/i.test(campName);
+
+      if (isHighTicket) {
+        notes.push(
+          `【高單抗老項目】啟動7~14天決策滯後性(Attribution Lag)，禁止以單日CPA判死；若高CTR+低諮詢優先排查Messenger歡迎詞與破冰選單`
+        );
+      } else if (isEntryProduct) {
+        if (refCtr > 0 && m.ctr < refCtr * 0.7 && refCpc > 0 && m.cpc > refCpc * 1.3) {
+          notes.push(`【素材實質疲勞】Link CTR較7日峰值下滑>30%且CPC上漲>30%，建議更換前3秒視覺Hook切角`);
+        }
+      }
+    } else if (industry === 'ecom_fastfashion') {
+      notes.push(`【快銷電商】實施24小時即時ROAS止血機制`);
+      if (m.clicks >= 25 && m.cart_adds / m.clicks > 0.08 && m.purchases === 0) {
+        notes.push(`【高加購低結帳】加購率>8%但結帳率低，優先排查運費門檻或付款體驗障礙`);
+      }
+    } else if (industry === 'online_courses') {
+      if (refCtr > 0 && m.ctr < refCtr * 0.7) {
+        notes.push(`【線上課程】點擊率顯著下滑，判定為素材失效，募資晚期重點佈局再行銷名單`);
+      }
+    } else if (industry === 'b2b_services') {
+      notes.push(`【B2B/名單服務】允許單名單高CPA($1,500+)；高CPC優先排查受眾包過窄互踩競價(Auction Overlap)`);
+    }
+
+    // 3. 流量漏斗通用歸因
     if (
       m.ctr > 1.5 &&
-      m.clicks >= 8 &&
+      m.clicks >= 15 &&
       ((refCvr > 0 && m.cvr < refCvr * 0.7) || (refCvr === 0 && m.cvr < 10))
     ) {
       notes.push(
-        `【高CTR+低CVR陷阱】CTR高達${m.ctr}%但CVR僅${m.cvr}%(7日基準${refCvr}%)，疑受眾期待落差、Messenger破冰門檻過高或落地頁障礙`
+        `【高CTR+低CVR陷阱】CTR高達${m.ctr}%但CVR僅${m.cvr}%，優先排查Messenger破冰問題門檻過高或落地頁障礙`
       );
     }
 
-    // 規則 4: 低 CTR (< 0.8%) + 高 CPM 或 Frequency > 2.5 -> 素材受眾疲勞
-    if (m.ctr > 0 && m.ctr < 0.8 && (refCpm === 0 || m.cpm >= refCpm)) {
-      notes.push(`【素材受眾疲勞/競價激烈】低CTR(${m.ctr}%<0.8%)+高CPM($${m.cpm})，建議換前3秒Hook或擴受眾`);
-    } else if (freq > 2.5) {
-      notes.push(`【頻次偏高】Frequency ${freq}>2.5，注意受眾審美疲勞`);
-    }
-
-    // 規則 5: CPC 突然飆升 > 30%，檢查 CPM 是否同步上漲
+    // 4. CPC 突然飆升 > 30% 歸因
     if (refCpc > 0 && m.cpc > refCpc * 1.3) {
       const cpcRise = round2(((m.cpc - refCpc) / refCpc) * 100);
       if (refCpm > 0 && m.cpm > refCpm * 1.15) {
         notes.push(
-          `【CPC飆升+${cpcRise}%】由$${refCpc}漲至$${m.cpc}，主因為外部競價擠壓(CPM由$${refCpm}漲至$${m.cpm})`
+          `【CPC飆升+${cpcRise}%】主因為外部競價擠壓(CPM由$${refCpm}飆至$${m.cpm})`
         );
       } else {
         notes.push(
-          `【CPC飆升+${cpcRise}%】由$${refCpc}漲至$${m.cpc}，CPM穩定($${m.cpm})，主因為素材CTR下滑(由${refCtr}%降至${m.ctr}%)`
+          `【CPC飆升+${cpcRise}%】CPM穩定($${m.cpm})，主因為素材CTR下滑(由${refCtr}%降至${m.ctr}%)`
         );
       }
     }
@@ -437,6 +472,7 @@ export async function generateCleanedDiagnosticReport(options: {
 
   return {
     report_date: reportDate,
+    industry,
     target_roas: targetRoas,
     today_metrics: todayMetrics,
     baseline_7d_avg,

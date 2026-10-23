@@ -192,37 +192,41 @@ cron.schedule(
   }
 );
 
-// 每日 15:00 (Asia/Taipei) 自動執行廣告風控止血巡檢與推播（已累積大半天花費，為晚間黃金時段及時止血）
-cron.schedule(
-  '0 15 * * *',
-  async () => {
-    console.log('⏰ [Cron] 觸發每日 15:00 廣告自動風控止血巡檢...');
-    try {
-      await pushDailyBleedGuard({ dryRun: false });
-    } catch (err: any) {
-      console.error('❌ [Cron] 每日自動風控巡檢失敗:', err);
+// 每日 15:00 (Asia/Taipei) 自動執行廣告風控止血巡檢與推播（預設關閉，避免一天多次推播；可在環境變數設 ENABLE_AFTERNOON_BLEED_GUARD=true 開啟）
+if (process.env.ENABLE_AFTERNOON_BLEED_GUARD === 'true') {
+  cron.schedule(
+    '0 15 * * *',
+    async () => {
+      console.log('⏰ [Cron] 觸發每日 15:00 廣告自動風控止血巡檢...');
+      try {
+        await pushDailyBleedGuard({ dryRun: false });
+      } catch (err: any) {
+        console.error('❌ [Cron] 每日自動風控巡檢失敗:', err);
+      }
+    },
+    {
+      timezone: 'Asia/Taipei',
     }
-  },
-  {
-    timezone: 'Asia/Taipei',
-  }
-);
+  );
+}
 
-// 每日 21:30 (Asia/Taipei) 自動推播今日成效日落晚報
-cron.schedule(
-  '30 21 * * *',
-  async () => {
-    console.log('⏰ [Cron] 觸發每日 21:30 今日成效晚報自動推播...');
-    try {
-      await pushEveningBrief();
-    } catch (err: any) {
-      console.error('❌ [Cron] 晚報自動推播失敗:', err);
+// 每日 21:30 (Asia/Taipei) 自動推播今日成效日落晚報（預設關閉，確保每日僅 09:00 推播一次；可在環境變數設 ENABLE_EVENING_BRIEF=true 開啟）
+if (process.env.ENABLE_EVENING_BRIEF === 'true') {
+  cron.schedule(
+    '30 21 * * *',
+    async () => {
+      console.log('⏰ [Cron] 觸發每日 21:30 今日成效晚報自動推播...');
+      try {
+        await pushEveningBrief();
+      } catch (err: any) {
+        console.error('❌ [Cron] 晚報自動推播失敗:', err);
+      }
+    },
+    {
+      timezone: 'Asia/Taipei',
     }
-  },
-  {
-    timezone: 'Asia/Taipei',
-  }
-);
+  );
+}
 
 // 每週一 10:00 (Asia/Taipei) 自動推播廣告成效週報
 cron.schedule(
