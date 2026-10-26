@@ -57,8 +57,16 @@ app.get('/api/report', async (req, res) => {
   }
 });
 
+import { isMorningBriefPushedToday, getTodayTaipeiDate } from './utils/lockManager.js';
+
 // 外部排程觸發端點 (用於定時喚醒與觸發晨報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
 app.all('/cron/push-brief', (req, res) => {
+  if (isMorningBriefPushedToday() && req.query.force !== 'true') {
+    const today = getTodayTaipeiDate();
+    console.log(`🛑 [/cron/push-brief] 今日 (${today}) 晨報已於磁碟中鎖定推送，強制略過重複外部呼叫。`);
+    return res.status(200).send('Skipped: morning brief already pushed today');
+  }
+
   console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行晨報推播...');
   res.status(200).send('OK');
 
@@ -74,6 +82,11 @@ app.all('/cron/push-brief', (req, res) => {
 
 // 外部排程觸發端點 (用於定時喚醒與觸發每週週報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
 app.all('/cron/push-weekly', (req, res) => {
+  if (process.env.ENABLE_WEEKLY_REPORT !== 'true' && req.query.force !== 'true') {
+    console.log('🛑 [/cron/push-weekly] 週報推播功能已關閉，跳過執行。');
+    return res.status(200).send('Skipped: weekly report disabled');
+  }
+
   console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行每週成效週報推播...');
   res.status(200).send('OK');
 
@@ -89,6 +102,11 @@ app.all('/cron/push-weekly', (req, res) => {
 
 // 外部排程觸發端點 (用於定時喚醒與觸發今日成效晚報，立即回傳 200 避免 cron-job.org 逾時，背景非同步推播)
 app.all('/cron/push-evening', (req, res) => {
+  if (process.env.ENABLE_EVENING_BRIEF !== 'true' && req.query.force !== 'true') {
+    console.log('🛑 [/cron/push-evening] 晚報推播功能已關閉，跳過執行。');
+    return res.status(200).send('Skipped: evening brief disabled');
+  }
+
   console.log('⏰ [External Trigger] 收到排程觸發請求，立即回應 200 並於背景執行今日成效晚報推播...');
   res.status(200).send('OK');
 
@@ -105,13 +123,18 @@ app.all('/cron/push-evening', (req, res) => {
 
 // 外部排程觸發端點 (用於定時喚醒與觸發每日自動風控止血巡檢，支援 dryRun 參數)
 app.all('/cron/push-bleed-guard', (req, res) => {
+  if (process.env.ENABLE_AFTERNOON_BLEED_GUARD !== 'true' && req.query.force !== 'true') {
+    console.log('🛑 [/cron/push-bleed-guard] 下午風控巡檢已關閉，跳過執行。');
+    return res.status(200).send('Skipped: afternoon bleed guard disabled');
+  }
+
   const dryRun = req.query.dryRun === 'true';
   console.log(`⏰ [External Trigger] 收到外部自動風控排程呼叫 (dryRun: ${dryRun})，立即回應 200...`);
   res.status(200).send('OK');
 
   setImmediate(async () => {
     try {
-      await pushDailyBleedGuard({ dryRun, force: true });
+      await pushDailyBleedGuard({ dryRun });
       console.log('✅ [External Trigger] 背景每日自動風控巡檢成功完成！');
     } catch (err: any) {
       console.error('❌ [External Trigger] 背景自動風控巡檢失敗:', err.message);
@@ -228,21 +251,23 @@ if (process.env.ENABLE_EVENING_BRIEF === 'true') {
   );
 }
 
-// 每週一 10:00 (Asia/Taipei) 自動推播廣告成效週報
-cron.schedule(
-  '0 10 * * 1',
-  async () => {
-    console.log('⏰ [Cron] 觸發每週一 10:00 廣告成效週報自動推播...');
-    try {
-      await pushWeeklyReport();
-    } catch (err: any) {
-      console.error('❌ [Cron] 週報自動推播失敗:', err);
+// 每週一 10:00 (Asia/Taipei) 自動推播廣告成效週報（預設關閉，確保每日僅 09:00 推播一次晨報；可在環境變數設 ENABLE_WEEKLY_REPORT=true 開啟）
+if (process.env.ENABLE_WEEKLY_REPORT === 'true') {
+  cron.schedule(
+    '0 10 * * 1',
+    async () => {
+      console.log('⏰ [Cron] 觸發每週一 10:00 廣告成效週報自動推播...');
+      try {
+        await pushWeeklyReport();
+      } catch (err: any) {
+        console.error('❌ [Cron] 週報自動推播失敗:', err);
+      }
+    },
+    {
+      timezone: 'Asia/Taipei',
     }
-  },
-  {
-    timezone: 'Asia/Taipei',
-  }
-);
+  );
+}
 
 // 啟動伺服器
 app.listen(config.port, () => {

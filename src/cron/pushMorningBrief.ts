@@ -5,6 +5,11 @@ import { FlexBuilder } from '../formatters/flexBuilder.js';
 import { generateCleanedDiagnosticReport } from '../pipelineReport.js';
 import { AIAgent } from '../aiAgent.js';
 import { AccountManager } from '../accountManager.js';
+import {
+  isMorningBriefPushedToday,
+  recordMorningBriefPushed,
+  getTodayTaipeiDate,
+} from '../utils/lockManager.js';
 
 let lastMorningBriefTimestamp = 0;
 let isBriefRunning = false;
@@ -12,10 +17,16 @@ let isBriefRunning = false;
 export async function pushMorningBrief(options: { force?: boolean; account?: string } = {}) {
   const now = Date.now();
   const COOLDOWN_MS = 30 * 60 * 1000; // 30 分鐘防重複推播冷卻
+  const todayStr = getTodayTaipeiDate();
 
   if (!options.force) {
     if (isBriefRunning) {
       console.log('⏳ [DeDup Lock] 晨報推播正在處理中，自動略過並發請求。');
+      return;
+    }
+    // 磁碟持久化當日鎖：只要今日已推送過，不受 Render 重啟或外部 retry 影響，強制略過！
+    if (isMorningBriefPushedToday()) {
+      console.log(`🛑 [Disk DeDup Lock] 今日 (${todayStr}) 晨報已於磁碟記錄中確認推送，強制略過重複請求！`);
       return;
     }
     if (now - lastMorningBriefTimestamp < COOLDOWN_MS) {
@@ -146,6 +157,7 @@ export async function pushMorningBrief(options: { force?: boolean; account?: str
     }
 
     lastMorningBriefTimestamp = Date.now();
+    recordMorningBriefPushed();
     console.log(`\n✅ 每日晨報核心帳號巡檢全部完成！共推播 ${pushedCount} 個有花費之帳號。`);
   } catch (err: any) {
     console.error('❌ 推播過程發生錯誤：', err.message);
