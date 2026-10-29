@@ -1,5 +1,6 @@
 import { config, KNOWN_ACCOUNTS, getAccountIndustry, IndustryType } from './config.js';
 import { MetaService } from './metaService.js';
+import { ruleLoader } from './rules/ruleLoader.js';
 
 export interface DiagnosticReportPayload {
   report_date: string;
@@ -296,28 +297,40 @@ export async function generateCleanedDiagnosticReport(options: {
     const campName = row.campaign_name || '';
 
     // ==========================================
-    // 核心判定基準 (Level 3 Engine)
+    // 核心判定基準：讀取 ad_rules.json 規則庫
     // ==========================================
+    const guards = ruleLoader.getGuards();
+    const minClicks = guards.min_clicks_for_eval || 25;
+    const spendMultiplier = guards.target_cpa_spend_multiplier || 2.0;
+
+    // 依廣告名稱自動配對型態規則（主力、ASC、動態目錄、再行銷、測試線）
+    const { typeKey, typeRule } = ruleLoader.matchCampaignType(campName);
+    const typeRules = typeRule.rules || {};
 
     // 1. 統計顯著性閘門（全產業通用・防誤殺）
-    // 若單日花費 < 2x 目標 CPA，或單日連結點擊數 < 25 次：一律標記為【觀察中（小樣本波動）】，嚴禁觸發 P0 緊急停用或成效疲軟警報。
-    const targetCpaThreshold = refCpa > 0 ? refCpa * 2 : 500;
-    const isSmallSample = m.ad_spend > 0 && (m.ad_spend < targetCpaThreshold || m.clicks < 25);
+    const targetCpaThreshold = refCpa > 0 ? refCpa * spendMultiplier : 500;
+    const isSmallSample = m.ad_spend > 0 && (m.ad_spend < targetCpaThreshold || m.clicks < minClicks);
 
     if (isSmallSample) {
       notes.push(
-        `【觀察中（小樣本波動）】單日花費$${m.ad_spend}<$${Math.round(targetCpaThreshold)}或點擊${m.clicks}<25次，嚴禁觸發P0停用或疲軟警報`
+        `【觀察中（小樣本波動）】單日花費$${m.ad_spend}<$${Math.round(targetCpaThreshold)}或點擊${m.clicks}<${minClicks}次，依安全規則嚴禁觸發P0停用或疲軟警報`
       );
     } else if (m.ad_spend > 0) {
-      // 通過統計閘門後才判定：嚴重浪費或成效疲軟
-      if (primaryConversions === 0 && refCpa > 0 && m.ad_spend >= refCpa * 1.5) {
-        notes.push(`【P0 警報：嚴重浪費】花費$${m.ad_spend}已超過1.5倍基準CPA($${refCpa})但0轉化`);
-      } else if (refRoas > 0 && m.roas < refRoas * 0.8) {
-        const dropPct = round2(((refRoas - m.roas) / refRoas) * 100);
-        notes.push(`【成效疲軟】ROAS(${m.roas})較7日基準(${refRoas})下跌${dropPct}% (>20%)`);
-      } else if (refRoas === 0 && refCpa > 0 && m.cpa > refCpa * 1.2) {
-        const risePct = round2(((m.cpa - refCpa) / refCpa) * 100);
-        notes.push(`【成效疲軟】CPA($${m.cpa})較7日基準($${refCpa})飆升${risePct}% (>20%)`);
+      // 檢查該型態是否有「不可砍規則」防誤殺（如動態目錄、再行銷小受眾）
+      const bleedRule = typeRules.cpa_severe_bleed;
+      if (bleedRule && bleedRule.action === 'no_auto_cut') {
+        notes.push(`【${typeRule.name}特例】${bleedRule.reason}，依規則不自動砍預算或停用`);
+      } else {
+        const bleedMult = bleedRule?.multiplier || 1.5;
+        if (primaryConversions === 0 && refCpa > 0 && m.ad_spend >= refCpa * bleedMult) {
+          notes.push(`【P0 警報：嚴重浪費】[依據: ${typeRule.name}] 花費$${m.ad_spend}超過${bleedMult}倍基準CPA($${refCpa})但0轉化`);
+        } else if (refRoas > 0 && m.roas < refRoas * 0.8) {
+          const dropPct = round2(((refRoas - m.roas) / refRoas) * 100);
+          notes.push(`【成效疲軟】ROAS(${m.roas})較7日基準(${refRoas})下跌${dropPct}% (>20%)`);
+        } else if (refRoas === 0 && refCpa > 0 && m.cpa > refCpa * 1.2) {
+          const risePct = round2(((m.cpa - refCpa) / refCpa) * 100);
+          notes.push(`【成效疲軟】CPA($${m.cpa})較7日基準($${refCpa})飆升${risePct}% (>20%)`);
+        }
       }
     }
 
@@ -337,7 +350,7 @@ export async function generateCleanedDiagnosticReport(options: {
       }
     } else if (industry === 'ecom_fastfashion') {
       notes.push(`【快銷電商】實施24小時即時ROAS止血機制`);
-      if (m.clicks >= 25 && m.cart_adds / m.clicks > 0.08 && m.purchases === 0) {
+      if (m.clicks >= minClicks && m.cart_adds / m.clicks > 0.08 && m.purchases === 0) {
         notes.push(`【高加購低結帳】加購率>8%但結帳率低，優先排查運費門檻或付款體驗障礙`);
       }
     } else if (industry === 'online_courses') {

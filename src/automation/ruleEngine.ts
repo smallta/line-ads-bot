@@ -1,5 +1,6 @@
 import { MetaService } from '../metaService.js';
 import { globalStateStore, IAutomationStateStore } from './stateStore.js';
+import { ruleLoader } from '../rules/ruleLoader.js';
 import {
   AutomationRule,
   RuleEvaluationResult,
@@ -8,30 +9,33 @@ import {
   AutomationScanReport,
 } from './types.js';
 
+const safetyLimits = ruleLoader.getSafetyLimits();
+const defaultCooldownHours = safetyLimits.cooldown_hours || 72;
+
 export const DEFAULT_AUTOMATION_RULES: AutomationRule[] = [
   {
     id: 'rule_zero_conversion_bleed',
     name: '零轉換失血黑洞防禦',
-    description: '當活動花費超過防誤殺門檻但轉換數為 0 時，自動調降 20% 預算以止血。',
+    description: '當活動花費超過防誤殺門檻但轉換數為 0 時，自動調降預算以止血。',
     enabled: true,
     type: 'zero_conversion_bleed',
     action: 'reduce_budget_20',
-    cooldownHours: 24, // 【Meta 廣告學習期防震盪標準：24 小時冷卻期】
+    cooldownHours: defaultCooldownHours, // 【ad_rules.json 安全線：72 小時冷卻期】
     thresholds: {
-      minSpend: 1000,  // 【可配置：低於此花費不觸發，待依各帳號預算規模校準】
+      minSpend: 1000,
     },
   },
   {
     id: 'rule_roas_crash',
     name: 'ROAS 嚴重跌破底線止血',
-    description: '電商型活動 ROAS 跌破 1.0 損益平衡底線且花費達標時，自動調降 20% 預算。',
+    description: '電商型活動 ROAS 跌破 1.0 損益平衡底線且花費達標時，自動調降預算。',
     enabled: true,
     type: 'roas_crash',
     action: 'reduce_budget_20',
-    cooldownHours: 24,
+    cooldownHours: defaultCooldownHours,
     thresholds: {
-      minSpend: 1000,  // 【可配置：防誤殺花費門檻】
-      minRoas: 1.0,    // 【可配置：保本 ROAS 底線】
+      minSpend: 1000,
+      minRoas: 1.0,
     },
   },
   {
@@ -41,10 +45,10 @@ export const DEFAULT_AUTOMATION_RULES: AutomationRule[] = [
     enabled: true,
     type: 'severe_fatigue',
     action: 'pause',
-    cooldownHours: 24,
+    cooldownHours: defaultCooldownHours,
     thresholds: {
-      minSpend: 500,            // 【可配置：素材層級花費門檻】
-      frequencyThreshold: 3.0,  // 【可配置：受眾飽和頻率門檻】
+      minSpend: 500,
+      frequencyThreshold: 3.0,
     },
   },
 ];

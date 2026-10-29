@@ -1,0 +1,121 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-10-29",
+  "description": "AI 廣告投手與風控大腦核心規則庫（所有門檻之唯一真理來源，嚴禁於程式碼寫死任何數值）",
+  "safety_limits": {
+    "cooldown_hours": 72,
+    "max_budget_cut_pct": 40,
+    "min_cut_interval_days": 14,
+    "max_consecutive_cuts": 3,
+    "max_budget_increase_pct": 20,
+    "max_weekly_increase_pct": 30,
+    "max_daily_budget_transfer_pct": 10,
+    "max_auto_pause_per_14d": 1,
+    "never_pause_last_active_campaign": true,
+    "top_performing_protection_count": 3,
+    "never_delete_always_pause": true
+  },
+  "unreliable_data_guards": {
+    "new_ad_observation_days": 14,
+    "min_weekly_conversions_for_scale": 10,
+    "min_clicks_for_eval": 25,
+    "target_cpa_spend_multiplier": 2.0,
+    "sudden_conversion_drop_threshold": 0.7,
+    "meta_attribution_lag_days": 7,
+    "year_end_blackout_periods": [
+      { "start": "12-01", "end": "12-14", "reason": "年終促銷基期失真防護" },
+      { "start": "01-01", "end": "01-14", "reason": "新年轉換回補期防護" }
+    ]
+  },
+  "campaign_types": {
+    "mainstream": {
+      "name": "Meta 主力跑量",
+      "regex": "主力|常態|長跑|core|main|生鮮|醫美",
+      "rules": {
+        "cpm_spike": { "consecutive_days": 3, "multiplier": 1.4, "action": "alert_only", "check_priority": ["受眾", "版位", "素材品質排名"] },
+        "ctr_drop": { "lookback_days": 14, "drop_pct": 30, "action": "alert_only", "check_priority": ["先拆文案", "換最差主文標題", "換素材"] },
+        "fatigue": { "frequency_threshold": 3.0, "ctr_drop_pct": 20, "action": "request_ai_creative" },
+        "cpa_cost_warning": { "multiplier": 1.5, "action": "alert_only" },
+        "cpa_severe_bleed": { "multiplier": 2.0, "action": "cut_budget_40", "secondary_action": "pause_if_3_times" },
+        "cpa_scale_up": { "discount_pct": 30, "require_spend_full": true, "action": "increase_budget_20" }
+      }
+    },
+    "asc_ai_plus": {
+      "name": "Meta ASC / Advantage+ AI",
+      "regex": "ASC|Advantage\\+|AI\\+|最高成效",
+      "rules": {
+        "cpm_spike": { "consecutive_days": 3, "multiplier": 1.4, "action": "alert_only", "check_priority": ["素材品質排名下降", "換素材"] },
+        "ctr_drop": { "lookback_days": 14, "drop_pct": 30, "action": "alert_only" },
+        "fatigue": { "frequency_threshold": 3.0, "min_creatives": 4, "action": "request_ai_creative" },
+        "cpa_cost_warning": { "multiplier": 2.0, "action": "alert_only" },
+        "cpa_severe_bleed": { "multiplier": 2.5, "action": "cut_budget_40" },
+        "cpa_scale_up": { "discount_pct": 30, "require_spend_full": true, "action": "increase_budget_20" }
+      }
+    },
+    "catalog_dpa": {
+      "name": "Meta 動態目錄 (DPA)",
+      "regex": "目錄|catalog|DPA",
+      "rules": {
+        "cpm_spike": { "consecutive_days": 3, "multiplier": 1.4, "action": "alert_only" },
+        "ctr_drop": { "lookback_days": 14, "drop_pct": 30, "action": "alert_only" },
+        "fatigue": { "frequency_threshold": 3.7, "ctr_drop_pct": 20, "action": "request_ai_creative" },
+        "cpa_cost_warning": { "multiplier": 1.5, "action": "alert_only" },
+        "cpa_severe_bleed": { "action": "no_auto_cut", "reason": "回測顯示變貴後會自行校正回歸" },
+        "cpa_scale_up": { "discount_pct": 20, "require_spend_full": true, "action": "increase_budget_20" }
+      }
+    },
+    "retargeting": {
+      "name": "Meta 名單 / 再行銷",
+      "regex": "再行銷|retargeting|名單|舊客|210天",
+      "rules": {
+        "cpm_spike": { "consecutive_days": 3, "multiplier": 1.4, "action": "alert_only", "reason": "再行銷 CPM 本來就高，可接受" },
+        "ctr_drop": { "lookback_days": 14, "drop_pct": 30, "action": "alert_only" },
+        "fatigue": { "frequency_threshold": 3.7, "action": "request_ai_creative" },
+        "cpa_cost_warning": { "multiplier": 3.0, "action": "alert_only" },
+        "cpa_severe_bleed": { "action": "no_auto_cut", "reason": "受眾小捐款少，波動大常誤判" },
+        "cpa_scale_up": { "action": "no_auto_scale", "reason": "受眾小不硬加預算" }
+      }
+    },
+    "testing_sandbox": {
+      "name": "Meta 測試線",
+      "regex": "測試|test|實驗|sandbox",
+      "rules": {
+        "cpm_spike": { "action": "ignore", "reason": "新素材剛上線本來就較貴" },
+        "ctr_drop": { "action": "observe_only" },
+        "eval_spend_threshold_usd": 100,
+        "conversions_win_threshold": 3,
+        "conversions_tie_threshold": 2,
+        "action_on_failure": "auto_pause"
+      }
+    }
+  },
+  "default_account_baselines": {
+    "act_173149270766368": {
+      "account_name": "【生鮮美食】、【醫美】",
+      "industry": "medical_aesthetics",
+      "target_cpa": 800,
+      "target_roas": 0,
+      "base_cpm": 250,
+      "base_ctr": 1.5,
+      "base_cpc": 15
+    },
+    "act_4000297516716904": {
+      "account_name": "一起夢想",
+      "industry": "b2b_services",
+      "target_cpa": 22.2,
+      "target_roas": 0,
+      "base_cpm": 4.14,
+      "base_ctr": 0.59,
+      "base_cpc": 0.7
+    },
+    "act_3766578603469957": {
+      "account_name": "微型社福",
+      "industry": "b2b_services",
+      "target_cpa": 22.2,
+      "target_roas": 0,
+      "base_cpm": 4.14,
+      "base_ctr": 0.59,
+      "base_cpc": 0.7
+    }
+  }
+}
